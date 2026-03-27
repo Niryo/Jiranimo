@@ -47,7 +47,8 @@ export class OutputParser extends EventEmitter {
     const type = raw.type as string | undefined;
 
     if (type === 'system') {
-      return { type: 'init', raw };
+      const sessionId = raw.session_id as string | undefined;
+      return { type: 'init', raw, sessionId };
     }
 
     if (type === 'assistant') {

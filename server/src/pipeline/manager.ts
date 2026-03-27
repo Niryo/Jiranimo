@@ -167,8 +167,8 @@ export class PipelineManager extends EventEmitter {
           this.emit('task-output', key, JSON.stringify(event.raw));
           if (event.text) {
             console.log(`[CLAUDE] ${event.text}`);
-          } else if (event.type === 'init') {
-            console.log(`[CLAUDE] Session started: ${event.sessionId || 'unknown'}`);
+          } else if (event.type === 'init' && event.sessionId) {
+            console.log(`[CLAUDE] Session started: ${event.sessionId}`);
           } else if (event.type === 'result') {
             console.log(`[CLAUDE] Result: ${event.isError ? 'ERROR' : 'SUCCESS'} — ${event.text?.slice(0, 200) || ''}`);
           }
