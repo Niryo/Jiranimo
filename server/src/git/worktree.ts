@@ -70,6 +70,10 @@ export async function createWorktree(
   // If the branch already exists, reuse it; otherwise create a new one
   if (await refExists(repoPath, branchName)) {
     await git(['worktree', 'add', worktreePath, branchName], repoPath);
+    // Pull latest changes so we start from an up-to-date branch
+    if (hasRemote && remote) {
+      await git(['pull', remote, branchName], worktreePath).catch(() => {});
+    }
   } else {
     const startPoint = await resolveStartPoint(repoPath, baseBranch, remote, hasRemote);
     await git(['worktree', 'add', worktreePath, '-b', branchName, startPoint], repoPath);
