@@ -30,7 +30,7 @@ PID_FILE="$PROJECT_ROOT/.dev-pids"
 # Construct Jira board URL
 JIRA_BOARD_URL="${JIRA_BOARD_URL:-}"
 if [ -z "$JIRA_BOARD_URL" ] && [ -n "$JIRA_HOST" ]; then
-  JIRA_BOARD_URL="https://$JIRA_HOST"
+  JIRA_BOARD_URL="https://$JIRA_HOST/jira"
 fi
 
 # Kill previous dev processes
