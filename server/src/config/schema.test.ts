@@ -18,7 +18,7 @@ describe('serverConfigSchema', () => {
     const result = serverConfigSchema.parse(validMinimal);
     expect(result.repoPath).toBe('/tmp/repo');
     expect(result.claude.maxBudgetUsd).toBe(2.0);
-    expect(result.pipeline.concurrency).toBe(1);
+    expect(result.pipeline.concurrency).toBe(0);
     expect(result.git.branchPrefix).toBe('jiranimo/');
     expect(result.git.defaultBaseBranch).toBe('main');
     expect(result.git.pushRemote).toBe('origin');

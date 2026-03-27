@@ -85,7 +85,8 @@ export class PipelineManager extends EventEmitter {
     this.processing = true;
 
     try {
-      while (this.queue.length > 0 && this.activeCount < this.config.pipeline.concurrency) {
+      const limit = this.config.pipeline.concurrency;
+      while (this.queue.length > 0 && (limit === 0 || this.activeCount < limit)) {
         const key = this.queue.shift();
         if (!key) break;
         const task = this.store.getTask(key);
@@ -117,7 +118,8 @@ export class PipelineManager extends EventEmitter {
 
     this.activeCount++;
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`[PIPELINE] Starting task: ${task.key} — ${task.summary} (${this.activeCount}/${this.config.pipeline.concurrency} active)`);
+    const concurrencyLabel = this.config.pipeline.concurrency === 0 ? 'unlimited' : String(this.config.pipeline.concurrency);
+    console.log(`[PIPELINE] Starting task: ${task.key} — ${task.summary} (${this.activeCount}/${concurrencyLabel} active)`);
     console.log(`[PIPELINE] Repo root: ${repoRoot}`);
     console.log(`${'='.repeat(60)}`);
     this.transitionTask(key, 'start', { startedAt: new Date().toISOString() });
