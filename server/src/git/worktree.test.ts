@@ -78,6 +78,28 @@ describe('createWorktree', () => {
     expect(existsSync(join(wtPath, 'prev-work.txt'))).toBe(true);
   });
 
+  it('starts from origin/baseBranch, not local branch, when remote has fewer commits', async () => {
+    // Set up a bare remote and push the initial state
+    const remotePath = join(tmpDir, 'remote.git');
+    execFileSync('mkdir', ['-p', remotePath]);
+    git(['init', '--bare', '-b', 'main'], remotePath);
+    git(['remote', 'add', 'origin', remotePath], repoPath);
+    git(['push', 'origin', 'main'], repoPath);
+
+    // Add a local commit that is NOT in origin/main
+    writeFileSync(join(repoPath, 'local-only.txt'), 'local change\n');
+    git(['add', '.'], repoPath);
+    git(['commit', '-m', 'local-only commit'], repoPath);
+
+    // createWorktree should start from origin/main, not the local commit
+    const wtPath = await createWorktree(repoPath, 'PROJ-6', 'jiranimo/PROJ-6-origin', 'main', 'origin');
+
+    // The local-only file must NOT appear in the worktree
+    expect(existsSync(join(wtPath, 'local-only.txt'))).toBe(false);
+    // But files that were in origin/main must be present
+    expect(existsSync(join(wtPath, 'README.md'))).toBe(true);
+  });
+
   it('worktree has its own working tree independent of main', async () => {
     const wtPath = await createWorktree(repoPath, 'PROJ-3', 'jiranimo/PROJ-3-test', 'main');
 
