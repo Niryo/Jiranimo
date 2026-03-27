@@ -13,6 +13,7 @@ import { executeClaudeCode } from '../claude/executor.js';
 import { commitAndPush } from '../git/branch.js';
 import { createWorktree, removeWorktree, findGitRepo } from '../git/worktree.js';
 import { branchName } from '../git/branch.js';
+import { createDraftPr, buildPrTitle, buildPrBody } from '../git/pr.js';
 
 export class PipelineManager extends EventEmitter {
   private store: StateStore;
@@ -204,10 +205,40 @@ export class PipelineManager extends EventEmitter {
       );
       console.log(`[PIPELINE] Changes committed and pushed`);
 
+      // 5. Create a draft PR if configured
+      let prUrl: string | undefined;
+      let prNumber: number | undefined;
+      if (this.config.git.createDraftPr) {
+        try {
+          const pr = await createDraftPr({
+            cwd: worktreePath,
+            baseBranch: this.config.git.defaultBaseBranch,
+            headBranch: branch,
+            title: buildPrTitle(task.key, task.summary),
+            body: buildPrBody({
+              issueKey: task.key,
+              summary: task.summary,
+              description: task.description,
+              jiraUrl: task.jiraUrl,
+              resultText: result.resultText,
+              costUsd: result.costUsd,
+              durationMs: result.durationMs,
+            }),
+          });
+          prUrl = pr.url;
+          prNumber = pr.number;
+          console.log(`[PIPELINE] Draft PR created: ${prUrl}`);
+        } catch (err) {
+          console.warn(`[PIPELINE] PR creation failed (non-fatal): ${(err as Error).message}`);
+        }
+      }
+
       this.transitionTask(key, 'complete', {
         claudeSessionId: result.sessionId,
         claudeCostUsd: result.costUsd,
         claudeResultText: result.resultText,
+        prUrl,
+        prNumber,
         logPath,
         completedAt: new Date().toISOString(),
       });
