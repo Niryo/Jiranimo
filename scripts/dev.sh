@@ -5,6 +5,15 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER_DIR="$PROJECT_ROOT/server"
 EXTENSION_DIR="$PROJECT_ROOT/extension"
 
+# Check for --self flag: operate on this repo instead of gitPlaygrounds
+JIRANIMO_SELF=""
+for arg in "$@"; do
+  if [ "$arg" = "--self" ]; then
+    JIRANIMO_SELF=1
+    break
+  fi
+done
+
 # Load .env.test for JIRA_HOST
 if [ -f "$PROJECT_ROOT/.env.test" ]; then
   set -a
@@ -45,9 +54,13 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Start server
+if [ -n "$JIRANIMO_SELF" ]; then
+  echo "[dev] Self mode: Claude will operate on the Jiranimo repo itself"
+fi
+
 echo "[dev] Starting server in development mode..."
 cd "$SERVER_DIR"
-JIRANIMO_MODE=development npx tsx watch src/index.ts &
+JIRANIMO_MODE=development JIRANIMO_SELF="$JIRANIMO_SELF" npx tsx watch src/index.ts &
 SERVER_PID=$!
 echo "$SERVER_PID" > "$PID_FILE"
 

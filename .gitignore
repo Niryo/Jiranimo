@@ -10,6 +10,8 @@ server/test/e2e/screenshots/
 .idea
 server/.dev-state.json
 server/.dev-logs/
+server/.dev-self-state.json
+server/.dev-self-logs/
 .chrome-dev-profile/
 .dev-pids
 

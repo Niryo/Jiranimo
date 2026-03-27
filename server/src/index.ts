@@ -10,10 +10,11 @@ import { createApp } from './web/server.js';
 import { attachWebSocket } from './web/ws-handler.js';
 
 const DEV_MODE = process.env.JIRANIMO_MODE === 'development';
+const SELF_MODE = DEV_MODE && process.env.JIRANIMO_SELF === '1';
 
 async function main() {
   if (DEV_MODE) {
-    console.log('\n[DEV] Running in development mode\n');
+    console.log(`\n[DEV] Running in development mode${SELF_MODE ? ' (self)' : ''}\n`);
   }
 
   // Load config — dev uses local file, prod uses global
@@ -21,13 +22,17 @@ async function main() {
   if (DEV_MODE) {
     const devConfigPath = resolve(process.cwd(), 'jiranimo.dev.config.json');
     config = loadConfig({ configPath: devConfigPath });
-    // Resolve relative repoPath against cwd
-    if (!isAbsolute(config.repoPath)) {
+    // Self mode: operate on the Jiranimo repo itself instead of gitPlaygrounds
+    if (SELF_MODE) {
+      config = { ...config, repoPath: resolve(process.cwd(), '..') };
+    } else if (!isAbsolute(config.repoPath)) {
+      // Resolve relative repoPath against cwd
       config = { ...config, repoPath: resolve(process.cwd(), config.repoPath) };
     }
-    // Set dev-local paths
-    config.statePath = config.statePath ?? resolve(process.cwd(), '.dev-state.json');
-    config.logsDir = config.logsDir ?? resolve(process.cwd(), '.dev-logs');
+    // Set dev-local paths (self mode gets its own state to avoid conflicts)
+    const statePrefix = SELF_MODE ? '.dev-self' : '.dev';
+    config.statePath = config.statePath ?? resolve(process.cwd(), `${statePrefix}-state.json`);
+    config.logsDir = config.logsDir ?? resolve(process.cwd(), `${statePrefix}-logs`);
   } else {
     if (!configExists()) {
       await runSetup();

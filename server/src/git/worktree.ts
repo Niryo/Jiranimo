@@ -13,12 +13,31 @@ async function git(args: string[], cwd: string): Promise<string> {
 }
 
 /**
- * Check if a branch exists locally.
+ * Check if a ref (branch, remote ref, etc.) exists.
  */
-async function branchExists(repoPath: string, branch: string): Promise<boolean> {
-  return git(['rev-parse', '--verify', branch], repoPath)
+async function refExists(repoPath: string, ref: string): Promise<boolean> {
+  return git(['rev-parse', '--verify', ref], repoPath)
     .then(() => true)
     .catch(() => false);
+}
+
+/**
+ * Resolve the best start point for a new branch.
+ * Tries in order: remote/baseBranch, local baseBranch, HEAD.
+ */
+async function resolveStartPoint(
+  repoPath: string,
+  baseBranch: string,
+  remote: string | undefined,
+  hasRemote: boolean,
+): Promise<string> {
+  if (hasRemote && remote) {
+    const remoteRef = `${remote}/${baseBranch}`;
+    if (await refExists(repoPath, remoteRef)) return remoteRef;
+  }
+  if (await refExists(repoPath, baseBranch)) return baseBranch;
+  // Last resort: use whatever HEAD points to
+  return 'HEAD';
 }
 
 /**
@@ -49,10 +68,10 @@ export async function createWorktree(
   }
 
   // If the branch already exists, reuse it; otherwise create a new one
-  if (await branchExists(repoPath, branchName)) {
+  if (await refExists(repoPath, branchName)) {
     await git(['worktree', 'add', worktreePath, branchName], repoPath);
   } else {
-    const startPoint = hasRemote && remote ? `${remote}/${baseBranch}` : baseBranch;
+    const startPoint = await resolveStartPoint(repoPath, baseBranch, remote, hasRemote);
     await git(['worktree', 'add', worktreePath, '-b', branchName, startPoint], repoPath);
   }
 
