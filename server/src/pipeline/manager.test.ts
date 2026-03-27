@@ -146,4 +146,31 @@ describe('PipelineManager', () => {
     expect(() => mgr.retryTask('PROJ-1')).toThrow('Invalid transition');
     store.destroy();
   });
+
+  it('logs session started only once even when multiple init events arrive', async () => {
+    const { executeClaudeCode } = await import('../claude/executor.js');
+
+    // Simulate Claude emitting multiple system/init events with the same session ID
+    vi.mocked(executeClaudeCode).mockImplementationOnce(async (opts) => {
+      const onEvent = opts.onEvent!;
+      onEvent({ type: 'init', raw: { type: 'system', session_id: 'sess-abc' }, sessionId: 'sess-abc' });
+      onEvent({ type: 'init', raw: { type: 'system', session_id: 'sess-abc' }, sessionId: 'sess-abc' });
+      onEvent({ type: 'init', raw: { type: 'system', session_id: 'sess-abc' }, sessionId: 'sess-abc' });
+      return { success: true, resultText: 'Done', sessionId: 'sess-abc', costUsd: 0.1, durationMs: 100 };
+    });
+
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mgr = new PipelineManager(store, testConfig);
+    mgr.submitTask(sampleInput);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const sessionLogs = consoleSpy.mock.calls
+      .map(args => args[0] as string)
+      .filter(msg => typeof msg === 'string' && msg.includes('[CLAUDE] Session started:'));
+
+    expect(sessionLogs).toHaveLength(1);
+    consoleSpy.mockRestore();
+    store.destroy();
+  });
 });
