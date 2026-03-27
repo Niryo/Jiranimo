@@ -23,6 +23,7 @@ vi.mock('../git/worktree.js', () => ({
   findGitRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
   createWorktree: vi.fn().mockResolvedValue('/tmp/test-repo/.jiranimo-worktrees/PROJ-1'),
   removeWorktree: vi.fn().mockResolvedValue(undefined),
+  detectDefaultBranch: vi.fn().mockResolvedValue('main'),
 }));
 
 vi.mock('../git/branch.js', async (importOriginal) => {

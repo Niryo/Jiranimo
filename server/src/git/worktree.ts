@@ -95,6 +95,26 @@ export async function removeWorktree(repoPath: string, worktreePath: string): Pr
 }
 
 /**
+ * Detect the default branch of a repo by checking the remote HEAD,
+ * then falling back to common branch names, then HEAD.
+ */
+export async function detectDefaultBranch(repoPath: string, remote?: string): Promise<string> {
+  const remoteName = remote ?? 'origin';
+  // Try remote HEAD (e.g. "refs/remotes/origin/HEAD -> refs/remotes/origin/master")
+  try {
+    const ref = await git(['symbolic-ref', `refs/remotes/${remoteName}/HEAD`], repoPath);
+    const branch = ref.replace(`refs/remotes/${remoteName}/`, '');
+    if (branch) return branch;
+  } catch { /* no remote HEAD set */ }
+  // Fall back to checking common branch names
+  for (const candidate of ['main', 'master']) {
+    if (await refExists(repoPath, `${remoteName}/${candidate}`)) return candidate;
+    if (await refExists(repoPath, candidate)) return candidate;
+  }
+  return 'HEAD';
+}
+
+/**
  * Clean up stale worktree entries (e.g., after crashes).
  * Call on server startup.
  */

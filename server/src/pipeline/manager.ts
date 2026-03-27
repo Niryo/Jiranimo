@@ -11,7 +11,7 @@ import { transition } from './state-machine.js';
 import { buildPrompt } from '../claude/prompt-builder.js';
 import { executeClaudeCode } from '../claude/executor.js';
 import { commitAndPush } from '../git/branch.js';
-import { createWorktree, removeWorktree, findGitRepo } from '../git/worktree.js';
+import { createWorktree, removeWorktree, findGitRepo, detectDefaultBranch } from '../git/worktree.js';
 import { branchName } from '../git/branch.js';
 import { createDraftPr, buildPrTitle, buildPrBody } from '../git/pr.js';
 
@@ -137,6 +137,10 @@ export class PipelineManager extends EventEmitter {
       }
       console.log(`[PIPELINE] Git repo: ${gitRepoPath}`);
 
+      // Detect the actual default branch (config may say 'main' but repo uses 'master')
+      const baseBranch = await detectDefaultBranch(gitRepoPath, this.config.git.pushRemote);
+      console.log(`[PIPELINE] Base branch: ${baseBranch}`);
+
       // 2. Create a worktree for this task (isolated from user's working directory)
       // Reuse existing branch name if this is a re-implementation, otherwise generate a new one
       const branch = task.branchName ?? branchName(this.config.git.branchPrefix, task.key, task.summary);
@@ -144,7 +148,7 @@ export class PipelineManager extends EventEmitter {
         gitRepoPath,
         task.key,
         branch,
-        this.config.git.defaultBaseBranch,
+        baseBranch,
         this.config.git.pushRemote,
       );
       console.log(`[PIPELINE] Worktree created: ${worktreePath}`);
@@ -214,7 +218,7 @@ export class PipelineManager extends EventEmitter {
         try {
           const pr = await createDraftPr({
             cwd: worktreePath,
-            baseBranch: this.config.git.defaultBaseBranch,
+            baseBranch,
             headBranch: branch,
             title: buildPrTitle(task.key, task.summary),
             body: buildPrBody({
