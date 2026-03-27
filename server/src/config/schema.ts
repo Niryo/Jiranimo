@@ -14,7 +14,8 @@ const claudeConfigSchema = z.object({
 });
 
 const pipelineConfigSchema = z.object({
-  concurrency: z.number().int().positive().default(1),
+  // 0 = unlimited (all queued tasks run in parallel); positive integer = cap
+  concurrency: z.number().int().min(0).default(0),
 });
 
 const gitConfigSchema = z.object({
