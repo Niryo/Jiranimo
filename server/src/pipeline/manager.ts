@@ -158,6 +158,7 @@ export class PipelineManager extends EventEmitter {
       console.log(`[PIPELINE] Spawning Claude Code in worktree...`);
       console.log(`${'─'.repeat(60)}`);
 
+      let sessionLogged = false;
       const result: ExecutionResult = await executeClaudeCode({
         prompt,
         cwd: worktreePath,
@@ -168,7 +169,8 @@ export class PipelineManager extends EventEmitter {
           this.emit('task-output', key, JSON.stringify(event.raw));
           if (event.text) {
             console.log(`[CLAUDE] ${event.text}`);
-          } else if (event.type === 'init' && event.sessionId) {
+          } else if (event.type === 'init' && event.sessionId && !sessionLogged) {
+            sessionLogged = true;
             console.log(`[CLAUDE] Session started: ${event.sessionId}`);
           } else if (event.type === 'result') {
             console.log(`[CLAUDE] Result: ${event.isError ? 'ERROR' : 'SUCCESS'} — ${event.text?.slice(0, 200) || ''}`);
