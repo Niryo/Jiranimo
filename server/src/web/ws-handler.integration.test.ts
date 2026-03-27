@@ -15,6 +15,15 @@ vi.mock('../claude/executor.js', () => ({
     success: true, resultText: 'Done', sessionId: 's', costUsd: 0.5, durationMs: 1000,
   }),
 }));
+vi.mock('../git/worktree.js', () => ({
+  findGitRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
+  createWorktree: vi.fn().mockResolvedValue('/tmp/test-repo/.jiranimo-worktrees/PROJ-1'),
+  removeWorktree: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../git/branch.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../git/branch.js')>();
+  return { ...original, commitAndPush: vi.fn().mockResolvedValue(undefined) };
+});
 
 const testConfig: ServerConfig = {
   repoPath: '/tmp/test-repo',

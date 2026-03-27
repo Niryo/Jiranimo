@@ -23,6 +23,7 @@ export interface TaskRecord {
   prNumber?: number;
   claudeSessionId?: string;
   claudeCostUsd?: number;
+  claudeResultText?: string;
   errorMessage?: string;
   logPath?: string;
   createdAt: string;

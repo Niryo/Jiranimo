@@ -6,7 +6,7 @@ const MAX_COMMENTS = 10;
 export function buildPrompt(task: TaskInput, appendPrompt?: string): string {
   const sections: string[] = [];
 
-  sections.push(`You are implementing a Jira task. Your working directory contains one or more git repositories. Find the correct project, navigate into it, and implement the task.`);
+  sections.push(`You are implementing a Jira task. You are in a git repository on a dedicated feature branch. Implement the changes described below.`);
   sections.push(`## Task: ${task.key} - ${task.summary}`);
 
   // Description
@@ -68,15 +68,11 @@ export function buildPrompt(task: TaskInput, appendPrompt?: string): string {
 
   // Instructions
   sections.push(`### Instructions
-1. Look at the available projects in the current directory and identify the correct one for this task.
-2. Navigate into the correct project directory.
-3. Create a new git branch for this task (e.g. jiranimo/${task.key}-short-description).
-4. Read the codebase to understand the existing architecture, patterns, and conventions.
-5. Implement the changes described above, following existing code style.
-6. Write or update tests as appropriate.
-7. Ensure the code compiles and lints cleanly.
-8. Commit your changes with a descriptive message referencing ${task.key}.
-9. Push the branch if a remote is configured.`);
+1. Read the codebase to understand the existing architecture, patterns, and conventions.
+2. Implement the changes described above, following existing code style.
+3. Write or update tests as appropriate.
+4. Ensure the code compiles and lints cleanly.
+5. Do NOT run git commands — the orchestrating system handles branching, committing, and pushing.`);
 
   if (appendPrompt) {
     sections.push(appendPrompt);

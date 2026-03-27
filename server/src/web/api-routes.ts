@@ -76,6 +76,16 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
     }
   });
 
+  // DELETE /api/tasks/:key — remove a task (e.g. when moved back to To Do in Jira)
+  router.delete('/tasks/:key', (req: Request, res: Response) => {
+    const deleted = store.deleteTask(req.params.key);
+    if (deleted) {
+      res.json({ deleted: true });
+    } else {
+      res.status(404).json({ error: `Task ${req.params.key} not found` });
+    }
+  });
+
   // GET /api/tasks/:key/logs — get task logs
   router.get('/tasks/:key/logs', (req: Request, res: Response) => {
     const task = store.getTask(req.params.key);

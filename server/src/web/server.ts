@@ -13,7 +13,7 @@ export function createApp(store: StateStore, pipeline: PipelineManager) {
   // CORS — allow requests from Jira and any origin (local tool, not public)
   app.use((_req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
     if (_req.method === 'OPTIONS') { res.sendStatus(204); return; }
     next();

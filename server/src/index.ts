@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { resolve, isAbsolute } from 'node:path';
 import { watch } from 'node:fs';
+import { pruneWorktrees, findGitRepo } from './git/worktree.js';
 import { loadConfig } from './config/loader.js';
 import { configExists, runSetup } from './config/setup.js';
 import { StateStore } from './state/store.js';
@@ -32,6 +33,13 @@ async function main() {
       await runSetup();
     }
     config = loadConfig();
+  }
+
+  // Prune stale worktrees from previous crashes
+  const gitRepo = await findGitRepo(config.repoPath);
+  if (gitRepo) {
+    await pruneWorktrees(gitRepo);
+    console.log(`Pruned stale worktrees in ${gitRepo}`);
   }
 
   // State — dev uses local file, prod uses global default

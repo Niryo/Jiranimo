@@ -152,8 +152,15 @@ describe('Full Pipeline E2E', () => {
 
     expect(task.status).toBe('completed');
     expect(task.claudeCostUsd).toBe(0.42);
-    // Fake Claude creates a file in cwd
-    expect(testRepo.fileExists('jiranimo-test-output.txt')).toBe(true);
+    expect(task.branchName).toBeTruthy();
+
+    // Verify the branch exists with a commit (worktree is cleaned up, but the branch persists)
+    const branches = testRepo.git('branch', '--list').split('\n').map(b => b.trim().replace('* ', ''));
+    expect(branches.some(b => b.startsWith('jiranimo/'))).toBe(true);
+
+    // Verify the commit is on the branch
+    const branchLog = testRepo.git('log', '--oneline', task.branchName, '-1');
+    expect(branchLog).toContain(issueKey);
   }, 30_000);
 
   it('task shows on dashboard via API', async () => {

@@ -18,29 +18,42 @@
   const BADGE_ATTR = 'data-jiranimo';
   const SCAN_DEBOUNCE = 500;
   const WS_RECONNECT_DELAY = 3000;
+  const SPARKLES_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5zM18 1.5a.75.75 0 01.728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 010 1.456l-1.036.258c-.94.236-1.674.97-1.91 1.91l-.258 1.036a.75.75 0 01-1.456 0l-.258-1.036a2.625 2.625 0 00-1.91-1.91l-1.036-.258a.75.75 0 010-1.456l1.036-.258a2.625 2.625 0 001.91-1.91l.258-1.036A.75.75 0 0118 1.5zM16.5 15a.75.75 0 01.712.513l.394 1.183c.15.447.5.799.948.948l1.183.395a.75.75 0 010 1.422l-1.183.395c-.447.15-.799.5-.948.948l-.395 1.183a.75.75 0 01-1.422 0l-.395-1.183a1.5 1.5 0 00-.948-.948l-1.183-.395a.75.75 0 010-1.422l1.183-.395c.447-.15.799-.5.948-.948l.395-1.183A.75.75 0 0116.5 15z" clip-rule="evenodd"/></svg>';
 
   /** @type {Record<string, string>} taskKey -> status */
   let taskStatuses = {};
   /** @type {Record<string, string>} taskKey -> prUrl */
   let taskPrUrls = {};
+
+  // Restore task statuses from sessionStorage so animations survive page reloads
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('jiranimo-statuses') || '{}');
+    const savedUrls = JSON.parse(sessionStorage.getItem('jiranimo-prurls') || '{}');
+    Object.assign(taskStatuses, saved);
+    Object.assign(taskPrUrls, savedUrls);
+    log('Restored', Object.keys(saved).length, 'task statuses from sessionStorage');
+  } catch { /* ignore */ }
+
+  function persistStatuses() {
+    try {
+      sessionStorage.setItem('jiranimo-statuses', JSON.stringify(taskStatuses));
+      sessionStorage.setItem('jiranimo-prurls', JSON.stringify(taskPrUrls));
+    } catch { /* ignore */ }
+  }
+
   /** @type {string} */
   let serverUrl = 'http://localhost:3456';
-  /** @type {string} */
-  let triggerLabel = 'ai-ready';
   /** @type {object|null} */
   let boardConfig = null;
   /** @type {number|null} */
   let scanTimer = null;
-  /** @type {Record<string, string[]>} issueKey -> labels (cached from API) */
-  let labelCache = {};
 
   async function init() {
     log('Content script loaded on', location.href);
 
-    const settings = await chrome.storage.local.get(['serverUrl', 'defaultTriggerLabel']);
+    const settings = await chrome.storage.local.get(['serverUrl']);
     serverUrl = settings.serverUrl || 'http://localhost:3456';
-    triggerLabel = settings.defaultTriggerLabel || 'ai-ready';
-    log('Config — serverUrl:', serverUrl, 'triggerLabel:', triggerLabel);
+    log('Config — serverUrl:', serverUrl);
 
     const boardId = getBoardId();
     if (!boardId) {
@@ -56,12 +69,10 @@
       log('No board config found — showing setup modal');
       BoardConfig.show(boardId, (config) => {
         boardConfig = config;
-        if (config.triggerLabel) triggerLabel = config.triggerLabel;
         startScanning();
       });
     } else {
       log('Board config loaded:', JSON.stringify(boardConfig));
-      if (boardConfig.triggerLabel) triggerLabel = boardConfig.triggerLabel;
       startScanning();
     }
   }
@@ -72,7 +83,7 @@
   }
 
   function startScanning() {
-    log('Starting card scanner, looking for label:', triggerLabel);
+    log('Starting card scanner');
     setTimeout(() => scanCards(), 1000);
     observeCardChanges();
     connectWebSocket();
@@ -84,38 +95,19 @@
   }
 
   async function scanCards() {
-    // Find all cards on the board
     const cards = findCards();
     log(`Found ${cards.size} card candidates`);
 
-    // Extract issue keys from all cards
-    const cardsByKey = new Map();
+    let injected = 0;
     for (const card of cards) {
-      if (card.querySelector(`[${BADGE_ATTR}]`)) continue; // already has badge
+      if (card.querySelector(`[${BADGE_ATTR}]`)) continue;
       const key = extractIssueKey(card);
-      if (key) cardsByKey.set(key, card);
-    }
-
-    if (cardsByKey.size === 0) return;
-
-    // Fetch labels for uncached keys via Jira API
-    const uncachedKeys = [...cardsByKey.keys()].filter(k => !(k in labelCache));
-    if (uncachedKeys.length > 0) {
-      await fetchLabelsForIssues(uncachedKeys);
-    }
-
-    // Inject badges on cards that have the trigger label (one per issue key)
-    let matched = 0;
-    for (const [key, card] of cardsByKey) {
-      // Skip if a badge for this key already exists anywhere on the page
+      if (!key) continue;
       if (document.querySelector(`[${BADGE_ATTR}="${key}"]`)) continue;
-      const labels = labelCache[key] || [];
-      if (labels.some(l => l.toLowerCase() === triggerLabel.toLowerCase())) {
-        injectBadge(card, key);
-        matched++;
-      }
+      injectBadge(card, key);
+      injected++;
     }
-    log(`Processed ${cardsByKey.size} cards, ${matched} matched label "${triggerLabel}"`);
+    log(`Injected ${injected} badges`);
   }
 
   function findCards() {
@@ -155,38 +147,6 @@
   /**
    * Fetch labels for multiple issues via Jira REST API using JQL search.
    */
-  async function fetchLabelsForIssues(keys) {
-    try {
-      const jql = `key in (${keys.join(',')})`;
-      const url = `${location.origin}/rest/api/3/search/jql`;
-      log('Fetching labels for:', keys.join(', '));
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ jql, fields: ['labels'], maxResults: 50 }),
-      });
-      if (!res.ok) {
-        // Fallback to old search API
-        const fallbackUrl = `${location.origin}/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=labels&maxResults=50`;
-        const fallbackRes = await fetch(fallbackUrl, { credentials: 'include' });
-        if (fallbackRes.ok) {
-          const data = await fallbackRes.json();
-          for (const issue of data.issues || []) {
-            labelCache[issue.key] = issue.fields?.labels || [];
-          }
-        }
-        return;
-      }
-      const data = await res.json();
-      for (const issue of data.issues || []) {
-        labelCache[issue.key] = issue.fields?.labels || [];
-        log(`  ${issue.key} labels:`, labelCache[issue.key]);
-      }
-    } catch (err) {
-      warn('Failed to fetch labels:', err);
-    }
-  }
 
   /**
    * Fetch full issue details from Jira REST API (content script has session cookies).
@@ -268,8 +228,13 @@
         credentials: 'include',
         body: JSON.stringify({ transition: { id: match.id } }),
       });
-      if (execRes.ok) { log(`Transitioned ${issueKey} to "${match.name}"`); }
-      else { warn(`Transition failed: ${execRes.status}`); }
+      if (execRes.ok) {
+        log(`Transitioned ${issueKey} to "${match.name}" — refreshing board`);
+        // Brief delay for Jira to process, then reload so the card appears in the new column
+        setTimeout(() => location.reload(), 500);
+      } else {
+        warn(`Transition failed: ${execRes.status}`);
+      }
     } catch (err) { warn('transitionIssue error:', err); }
   }
 
@@ -288,6 +253,39 @@
       });
       log(`Comment posted on ${issueKey}`);
     } catch (err) { warn('postJiraComment error:', err); }
+  }
+
+  /**
+   * Post a concise completion comment on the Jira issue.
+   * Includes PR link if available, and Claude's result summary if useful.
+   */
+  async function postCompletionComment(task) {
+    const parts = [];
+
+    if (task.prUrl) {
+      parts.push(`Draft PR: ${task.prUrl}`);
+    }
+
+    // Include Claude's summary if it's substantive (not just "done")
+    if (task.claudeResultText) {
+      const text = task.claudeResultText.trim();
+      // Only include if it's more than a trivial response
+      if (text.length > 10 && text.length < 2000) {
+        parts.push(text);
+      }
+    }
+
+    if (task.claudeCostUsd) {
+      parts.push(`Cost: $${task.claudeCostUsd.toFixed(2)}`);
+    }
+
+    if (parts.length === 0) {
+      parts.push('Done');
+    }
+
+    parts.push('\n— Jiranimo + Claude Code');
+
+    await postJiraComment(task.key, parts.join('\n\n'));
   }
 
   /** Simple recursive ADF text extractor */
@@ -324,39 +322,59 @@
     return textMatch ? textMatch[0] : null;
   }
 
+  /**
+   * Find the card's summary/title element so we can place the icon next to it.
+   */
+  function findCardTitle(card) {
+    for (const sel of ['[data-testid*="summary"]', '[data-testid*="card.summary"]', '[data-testid*="card-title"]']) {
+      const el = card.querySelector(sel);
+      if (el) return el;
+    }
+    // Fallback: first text-only element that isn't the issue key
+    for (const el of card.querySelectorAll('span, a, p')) {
+      if (el.children.length === 0 && el.textContent.trim().length > 1) return el;
+    }
+    return null;
+  }
+
   function injectBadge(card, issueKey) {
-    const badge = document.createElement('div');
-    badge.setAttribute(BADGE_ATTR, issueKey);
-    badge.className = 'jiranimo-badge idle';
-    badge.textContent = '\u26A1 Implement';
+    const icon = document.createElement('span');
+    icon.setAttribute(BADGE_ATTR, issueKey);
+    icon.className = 'jiranimo-icon idle';
+    icon.title = 'Implement with AI';
+    icon.innerHTML = SPARKLES_SVG;
 
     const currentStatus = taskStatuses[issueKey];
     if (currentStatus) {
-      updateBadgeState(badge, issueKey, currentStatus);
+      updateBadgeState(icon, issueKey, currentStatus);
     }
 
-    badge.addEventListener('click', (e) => {
+    icon.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      handleBadgeClick(badge, issueKey);
+      handleBadgeClick(icon, issueKey);
     });
 
-    card.style.position = card.style.position || 'relative';
-    card.appendChild(badge);
-    log(`Badge injected for ${issueKey}`);
+    const titleEl = findCardTitle(card);
+    if (titleEl) {
+      titleEl.parentElement.insertBefore(icon, titleEl);
+    } else {
+      card.prepend(icon);
+    }
+    log(`Icon injected for ${issueKey}`);
   }
 
-  async function handleBadgeClick(badge, issueKey) {
+  async function handleBadgeClick(icon, issueKey) {
     const status = taskStatuses[issueKey];
 
     if (status === 'failed') {
-      badge.className = 'jiranimo-badge sending';
-      badge.textContent = 'Retrying...';
+      icon.className = 'jiranimo-icon sending';
+      icon.title = 'Retrying...';
       try {
         await fetch(`${serverUrl}/api/tasks/${issueKey}/retry`, { method: 'POST' });
       } catch (err) {
-        badge.className = 'jiranimo-badge failed';
-        badge.textContent = '\u2717 Error';
+        icon.className = 'jiranimo-icon failed';
+        icon.title = 'Error — click to retry';
       }
       return;
     }
@@ -368,20 +386,18 @@
       return;
     }
 
-    badge.className = 'jiranimo-badge sending';
-    badge.textContent = 'Sending...';
+    icon.className = 'jiranimo-icon sending';
+    icon.title = 'Sending to server...';
 
     try {
-      // Fetch issue details from the content script (has session cookies)
       const issueData = await fetchIssueDetails(issueKey);
       if (!issueData) {
-        badge.className = 'jiranimo-badge failed';
-        badge.textContent = '\u2717 Fetch failed';
-        setTimeout(() => { badge.className = 'jiranimo-badge idle'; badge.textContent = '\u26A1 Implement'; }, 3000);
+        icon.className = 'jiranimo-icon failed';
+        icon.title = 'Failed to fetch issue';
+        setTimeout(() => { icon.className = 'jiranimo-icon idle'; icon.title = 'Implement with AI'; }, 3000);
         return;
       }
 
-      // Submit directly to the server from the content script
       const res = await fetch(`${serverUrl}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -389,48 +405,48 @@
       });
 
       if (res.ok) {
-        badge.className = 'jiranimo-badge queued';
-        badge.textContent = 'Queued';
+        icon.className = 'jiranimo-icon queued';
+        icon.title = 'Queued';
         taskStatuses[issueKey] = 'queued';
+        persistStatuses();
 
-        // Transition to In Progress directly (content script has cookies)
         if (boardConfig?.transitions?.inProgress) {
           transitionIssue(issueKey, boardConfig.transitions.inProgress.name);
         }
       } else {
         const err = await res.json().catch(() => ({}));
-        badge.className = 'jiranimo-badge failed';
-        badge.textContent = '\u2717 ' + (err.error || `Error ${res.status}`);
-        setTimeout(() => { badge.className = 'jiranimo-badge idle'; badge.textContent = '\u26A1 Implement'; }, 3000);
+        icon.className = 'jiranimo-icon failed';
+        icon.title = err.error || `Error ${res.status}`;
+        setTimeout(() => { icon.className = 'jiranimo-icon idle'; icon.title = 'Implement with AI'; }, 3000);
       }
     } catch (err) {
       log('Implement failed:', err);
-      badge.className = 'jiranimo-badge idle';
-      badge.textContent = '\u26A1 Implement';
+      icon.className = 'jiranimo-icon idle';
+      icon.title = 'Implement with AI';
     }
   }
 
-  function updateBadgeState(badge, issueKey, status) {
+  function updateBadgeState(icon, issueKey, status) {
     switch (status) {
       case 'queued':
-        badge.className = 'jiranimo-badge queued';
-        badge.textContent = 'Queued';
+        icon.className = 'jiranimo-icon queued';
+        icon.title = 'Queued';
         break;
       case 'in-progress':
-        badge.className = 'jiranimo-badge in-progress';
-        badge.textContent = '\u23F3 Running...';
+        icon.className = 'jiranimo-icon in-progress';
+        icon.title = 'Running...';
         break;
       case 'completed':
-        badge.className = 'jiranimo-badge completed';
-        badge.textContent = '\u2713 PR Ready';
+        icon.className = 'jiranimo-icon completed';
+        icon.title = 'PR ready — click to open';
         break;
       case 'failed':
-        badge.className = 'jiranimo-badge failed';
-        badge.textContent = '\u2717 Failed';
+        icon.className = 'jiranimo-icon failed';
+        icon.title = 'Failed — click to retry';
         break;
       default:
-        badge.className = 'jiranimo-badge idle';
-        badge.textContent = '\u26A1 Implement';
+        icon.className = 'jiranimo-icon idle';
+        icon.title = 'Implement with AI';
     }
   }
 
@@ -445,6 +461,61 @@
   /** @type {WebSocket|null} */
   let ws = null;
 
+  async function syncTaskStatuses() {
+    try {
+      const res = await fetch(`${serverUrl}/api/tasks`);
+      if (!res.ok) return;
+      const tasks = await res.json();
+
+      // Collect completed/failed task keys to check against Jira
+      const toCheck = tasks.filter(t => t.status === 'completed' || t.status === 'failed');
+
+      // Check if any completed/failed tasks were moved back to To Do in Jira
+      const resetKeys = new Set();
+      if (toCheck.length > 0) {
+        const keys = toCheck.map(t => t.key);
+        try {
+          const jql = `key in (${keys.join(',')})`;
+          const jiraRes = await fetch(`${location.origin}/rest/api/3/search/jql`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ jql, fields: ['status'], maxResults: 50 }),
+          });
+          if (jiraRes.ok) {
+            const jiraData = await jiraRes.json();
+            for (const issue of jiraData.issues || []) {
+              const jiraStatus = issue.fields?.status?.name?.toLowerCase() || '';
+              if (jiraStatus.includes('to do') || jiraStatus.includes('todo')) {
+                log(`${issue.key} moved back to To Do in Jira — resetting`);
+                resetKeys.add(issue.key);
+                delete taskStatuses[issue.key];
+                delete taskPrUrls[issue.key];
+                fetch(`${serverUrl}/api/tasks/${issue.key}`, { method: 'DELETE' }).catch(() => {});
+              }
+            }
+          }
+        } catch {
+          // Jira API call failed — skip the check
+        }
+      }
+
+      for (const task of tasks) {
+        if (resetKeys.has(task.key)) continue;
+        taskStatuses[task.key] = task.status;
+        if (task.prUrl) taskPrUrls[task.key] = task.prUrl;
+        const badge = document.querySelector(`[${BADGE_ATTR}="${task.key}"]`);
+        if (badge) {
+          updateBadgeState(badge, task.key, task.status);
+        }
+      }
+      persistStatuses();
+      log('Synced', tasks.length, 'task statuses from server');
+    } catch {
+      // Server not running
+    }
+  }
+
   function connectWebSocket() {
     const wsUrl = serverUrl.replace(/^http/, 'ws') + '/ws';
     log('Connecting WebSocket:', wsUrl);
@@ -457,8 +528,10 @@
       return;
     }
 
-    ws.onopen = () => {
+    ws.onopen = async () => {
       log('WebSocket connected');
+      // Restore task statuses from server (in case page was refreshed)
+      await syncTaskStatuses();
     };
 
     ws.onmessage = (event) => {
@@ -489,6 +562,7 @@
       const oldStatus = taskStatuses[task.key];
       taskStatuses[task.key] = task.status;
       if (task.prUrl) taskPrUrls[task.key] = task.prUrl;
+      persistStatuses();
 
       // Update badge
       const badge = document.querySelector(`[${BADGE_ATTR}="${task.key}"]`);
@@ -496,14 +570,12 @@
         updateBadgeState(badge, task.key, task.status);
       }
 
-      // Update Jira when task completes: transition + comment with PR link
+      // Update Jira when task completes: transition + summary comment
       if (task.status === 'completed' && oldStatus !== 'completed') {
         if (boardConfig?.transitions?.inReview) {
           transitionIssue(task.key, boardConfig.transitions.inReview.name);
         }
-        if (task.prUrl) {
-          postJiraComment(task.key, `Draft PR created: ${task.prUrl}\nGenerated by Jiranimo + Claude Code`);
-        }
+        postCompletionComment(task);
       }
 
       log(`Task ${task.key}: ${oldStatus || 'new'} → ${task.status}`);
