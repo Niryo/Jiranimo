@@ -8,13 +8,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadSettings() {
-  const settings = await chrome.storage.local.get([
-    'jiraHost', 'serverUrl', 'defaultTriggerLabel',
-  ]);
+  const settings = await chrome.storage.local.get(['jiraHost', 'serverUrl']);
 
   document.getElementById('jira-host').value = settings.jiraHost || '';
   document.getElementById('server-url').value = settings.serverUrl || 'http://localhost:3456';
-  document.getElementById('default-label').value = settings.defaultTriggerLabel || 'ai-ready';
 
   loadBoardConfigs();
 }
@@ -22,9 +19,8 @@ async function loadSettings() {
 async function saveSettings() {
   const jiraHost = document.getElementById('jira-host').value.trim();
   const serverUrl = document.getElementById('server-url').value.trim() || 'http://localhost:3456';
-  const defaultTriggerLabel = document.getElementById('default-label').value.trim() || 'ai-ready';
 
-  await chrome.storage.local.set({ jiraHost, serverUrl, defaultTriggerLabel });
+  await chrome.storage.local.set({ jiraHost, serverUrl });
 
   const msg = document.getElementById('saved-msg');
   msg.style.display = 'inline';
@@ -50,7 +46,6 @@ async function loadBoardConfigs() {
     item.innerHTML = `
       <div>
         <strong>Board ${config.boardId}</strong> (${config.projectKey || '?'})
-        <br><small>Label: ${config.triggerLabel || 'ai-ready'}</small>
       </div>
       <button data-key="${key}">Remove</button>
     `;

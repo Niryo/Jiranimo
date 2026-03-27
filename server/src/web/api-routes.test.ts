@@ -13,6 +13,15 @@ vi.mock('../claude/executor.js', () => ({
     success: true, resultText: 'Done', sessionId: 's', costUsd: 0.5, durationMs: 1000,
   }),
 }));
+vi.mock('../git/worktree.js', () => ({
+  findGitRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
+  createWorktree: vi.fn().mockResolvedValue('/tmp/test-repo/.jiranimo-worktrees/PROJ-1'),
+  removeWorktree: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../git/branch.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../git/branch.js')>();
+  return { ...original, commitAndPush: vi.fn().mockResolvedValue(undefined) };
+});
 
 const testConfig: ServerConfig = {
   repoPath: '/tmp/test-repo',
@@ -119,6 +128,30 @@ describe('GET /api/tasks/:key', () => {
 
   it('returns 404 for unknown key', async () => {
     const res = await request(app).get('/api/tasks/NOPE-1');
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('DELETE /api/tasks/:key', () => {
+  it('deletes an existing task', async () => {
+    store.upsertTask({
+      key: 'PROJ-1', summary: 'Delete me', description: 'Test',
+      priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
+      status: 'completed', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const res = await request(app).delete('/api/tasks/PROJ-1');
+    expect(res.status).toBe(200);
+    expect(res.body.deleted).toBe(true);
+
+    // Verify it's gone
+    const getRes = await request(app).get('/api/tasks/PROJ-1');
+    expect(getRes.status).toBe(404);
+  });
+
+  it('returns 404 for unknown key', async () => {
+    const res = await request(app).delete('/api/tasks/NOPE-1');
     expect(res.status).toBe(404);
   });
 });

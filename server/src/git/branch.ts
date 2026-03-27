@@ -15,7 +15,8 @@ export function slugify(text: string, maxLength = 40): string {
 
 export function branchName(prefix: string, issueKey: string, summary: string): string {
   const slug = slugify(summary);
-  return `${prefix}${issueKey}-${slug}`;
+  const rid = Math.random().toString(36).substring(2, 5);
+  return `${prefix}${issueKey}-${slug}-${rid}`;
 }
 
 export function commitType(issueType: string): string {
@@ -30,8 +31,14 @@ export function commitMessage(issueKey: string, summary: string, issueType: stri
 }
 
 async function git(args: string[], cwd: string): Promise<string> {
-  const { stdout } = await exec('git', args, { cwd });
-  return stdout.trim();
+  try {
+    const { stdout } = await exec('git', args, { cwd });
+    return stdout.trim();
+  } catch (err: unknown) {
+    const e = err as { stderr?: string; message: string };
+    const stderr = e.stderr?.trim();
+    throw new Error(stderr || e.message);
+  }
 }
 
 export async function setupBranch(

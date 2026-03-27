@@ -1,63 +1,60 @@
-.jiranimo-badge {
+.jiranimo-icon {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   cursor: pointer;
-  white-space: nowrap;
-  margin-top: 4px;
-  transition: background 0.15s;
+  vertical-align: middle;
+  margin-right: 4px;
+  flex-shrink: 0;
+  transition: color 0.15s;
 }
 
-.jiranimo-badge.idle {
-  background: #0052cc;
-  color: #fff;
-}
-.jiranimo-badge.idle:hover {
-  background: #0065ff;
+.jiranimo-icon svg {
+  width: 1em;
+  height: 1em;
+  display: block;
 }
 
-.jiranimo-badge.sending {
-  background: #6b778c;
-  color: #fff;
+.jiranimo-icon.idle { color: #0052cc; }
+.jiranimo-icon.idle:hover { color: #0065ff; }
+
+.jiranimo-icon.sending {
+  color: #6b778c;
   cursor: wait;
+  animation: jiranimo-spin 1s linear infinite;
 }
 
-.jiranimo-badge.queued {
-  background: #ff991f;
-  color: #172b4d;
-}
-
-.jiranimo-badge.in-progress {
-  background: #0052cc;
-  color: #fff;
+.jiranimo-icon.queued {
+  color: #ff991f;
   animation: jiranimo-pulse 1.5s ease-in-out infinite;
 }
 
-.jiranimo-badge.completed {
-  background: #36b37e;
-  color: #fff;
+.jiranimo-icon.in-progress {
+  color: #0052cc;
+  animation: jiranimo-sparkle 1.2s ease-in-out infinite;
 }
 
-.jiranimo-badge.completed:hover {
-  background: #2d9f6f;
-}
+.jiranimo-icon.completed { color: #36b37e; }
+.jiranimo-icon.completed:hover { color: #2d9f6f; }
 
-.jiranimo-badge.failed {
-  background: #de350b;
-  color: #fff;
-}
-.jiranimo-badge.failed:hover {
-  background: #ff5630;
+.jiranimo-icon.failed { color: #de350b; }
+.jiranimo-icon.failed:hover { color: #ff5630; }
+
+@keyframes jiranimo-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 @keyframes jiranimo-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  50%      { opacity: 0.4; }
+}
+
+@keyframes jiranimo-sparkle {
+  0%   { transform: scale(1)   rotate(0deg);   opacity: 1; }
+  25%  { transform: scale(1.3) rotate(90deg);  opacity: 0.6; }
+  50%  { transform: scale(0.85) rotate(180deg); opacity: 1; }
+  75%  { transform: scale(1.3) rotate(270deg); opacity: 0.6; }
+  100% { transform: scale(1)   rotate(360deg); opacity: 1; }
 }
 
 .jiranimo-config-overlay {

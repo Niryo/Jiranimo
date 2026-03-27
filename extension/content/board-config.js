@@ -49,9 +49,6 @@ const BoardConfig = {
         ${columnOptions}
       </select>
 
-      <label for="jiranimo-label">Trigger label</label>
-      <input id="jiranimo-label" type="text" value="ai-ready" />
-
       <button id="jiranimo-save-config">Save Configuration</button>
     `;
 
@@ -79,17 +76,13 @@ const BoardConfig = {
     modal.querySelector('#jiranimo-save-config').addEventListener('click', async () => {
       const inProgressCol = inProgressSelect.value;
       const inReviewCol = inReviewSelect.value;
-      const label = modal.querySelector('#jiranimo-label').value.trim() || 'ai-ready';
 
-      // Resolve column names to transition IDs
       const transitions = await this._resolveTransitions(inProgressCol, inReviewCol);
-
       const projectKey = this._extractProjectKey();
 
       const config = {
         boardId,
         projectKey,
-        triggerLabel: label,
         transitions,
       };
 

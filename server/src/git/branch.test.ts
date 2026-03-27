@@ -35,14 +35,22 @@ describe('slugify', () => {
 });
 
 describe('branchName', () => {
-  it('combines prefix, key, and slugified summary', () => {
-    expect(branchName('jiranimo/', 'PROJ-123', 'Add user avatar'))
-      .toBe('jiranimo/PROJ-123-add-user-avatar');
+  it('combines prefix, key, slugified summary, and random suffix', () => {
+    const name = branchName('jiranimo/', 'PROJ-123', 'Add user avatar');
+    expect(name).toMatch(/^jiranimo\/PROJ-123-add-user-avatar-[a-z0-9]{3}$/);
   });
 
   it('uses custom prefix', () => {
-    expect(branchName('auto/', 'BUG-1', 'Fix crash'))
-      .toBe('auto/BUG-1-fix-crash');
+    const name = branchName('auto/', 'BUG-1', 'Fix crash');
+    expect(name).toMatch(/^auto\/BUG-1-fix-crash-[a-z0-9]{3}$/);
+  });
+
+  it('generates different suffixes on successive calls', () => {
+    const names = new Set(
+      Array.from({ length: 20 }, () => branchName('jiranimo/', 'X-1', 'test')),
+    );
+    // With 36^3 = 46656 possibilities, 20 calls should produce at least 2 distinct values
+    expect(names.size).toBeGreaterThan(1);
   });
 });
 

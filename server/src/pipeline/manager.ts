@@ -10,11 +10,14 @@ import { StateStore } from '../state/store.js';
 import { transition } from './state-machine.js';
 import { buildPrompt } from '../claude/prompt-builder.js';
 import { executeClaudeCode } from '../claude/executor.js';
+import { commitAndPush } from '../git/branch.js';
+import { createWorktree, removeWorktree, findGitRepo } from '../git/worktree.js';
+import { branchName } from '../git/branch.js';
 
 export class PipelineManager extends EventEmitter {
   private store: StateStore;
   private config: ServerConfig;
-  private running = false;
+  private activeCount = 0;
   private queue: string[] = [];
   private processing = false;
 
@@ -48,6 +51,8 @@ export class PipelineManager extends EventEmitter {
       parentKey: input.parentKey,
       jiraUrl: input.jiraUrl,
       status: 'queued',
+      // Preserve branch name from previous attempt so we continue on the same branch
+      branchName: existing?.branchName,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -79,13 +84,12 @@ export class PipelineManager extends EventEmitter {
     this.processing = true;
 
     try {
-      while (this.queue.length > 0 && !this.running) {
+      while (this.queue.length > 0 && this.activeCount < this.config.pipeline.concurrency) {
         const key = this.queue.shift();
         if (!key) break;
         const task = this.store.getTask(key);
         if (!task) continue;
         this.runTask(key);
-        break;
       }
     } finally {
       this.processing = false;
@@ -108,12 +112,12 @@ export class PipelineManager extends EventEmitter {
 
   private async runTask(key: string): Promise<void> {
     const task = this.store.getTask(key)!;
-    const repoPath = this.config.repoPath;
+    const repoRoot = this.config.repoPath;
 
-    this.running = true;
+    this.activeCount++;
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`[PIPELINE] Starting task: ${task.key} — ${task.summary}`);
-    console.log(`[PIPELINE] Repo path: ${repoPath}`);
+    console.log(`[PIPELINE] Starting task: ${task.key} — ${task.summary} (${this.activeCount}/${this.config.pipeline.concurrency} active)`);
+    console.log(`[PIPELINE] Repo root: ${repoRoot}`);
     console.log(`${'='.repeat(60)}`);
     this.transitionTask(key, 'start', { startedAt: new Date().toISOString() });
 
@@ -121,24 +125,46 @@ export class PipelineManager extends EventEmitter {
     mkdirSync(logsDir, { recursive: true });
     const logPath = join(logsDir, `${key}-${Date.now()}.jsonl`);
     const logLines: string[] = [];
+    let worktreePath: string | null = null;
+    let gitRepoPath: string | null = null;
 
     try {
+      // 1. Find the git repo inside repoRoot
+      gitRepoPath = await findGitRepo(repoRoot);
+      if (!gitRepoPath) {
+        throw new Error(`No git repository found in ${repoRoot}`);
+      }
+      console.log(`[PIPELINE] Git repo: ${gitRepoPath}`);
+
+      // 2. Create a worktree for this task (isolated from user's working directory)
+      // Reuse existing branch name if this is a re-implementation, otherwise generate a new one
+      const branch = task.branchName ?? branchName(this.config.git.branchPrefix, task.key, task.summary);
+      worktreePath = await createWorktree(
+        gitRepoPath,
+        task.key,
+        branch,
+        this.config.git.defaultBaseBranch,
+        this.config.git.pushRemote,
+      );
+      console.log(`[PIPELINE] Worktree created: ${worktreePath}`);
+      console.log(`[PIPELINE] Branch: ${branch}`);
+      this.store.updateTaskStatus(key, 'in-progress', { branchName: branch });
+
+      // 3. Build prompt and run Claude in the worktree
       const prompt = buildPrompt(task, this.config.claude.appendSystemPrompt);
 
       console.log(`[PIPELINE] Prompt built (${prompt.length} chars)`);
-      console.log(`[PIPELINE] Spawning Claude Code...`);
-      console.log(`[PIPELINE] Command: ${this.config.claude.command ?? 'claude'}`);
+      console.log(`[PIPELINE] Spawning Claude Code in worktree...`);
       console.log(`${'─'.repeat(60)}`);
 
       const result: ExecutionResult = await executeClaudeCode({
         prompt,
-        cwd: repoPath,
+        cwd: worktreePath,
         config: this.config.claude,
         timeoutMs: 30 * 60 * 1000,
         onEvent: (event: ClaudeEvent) => {
           logLines.push(JSON.stringify(event.raw));
           this.emit('task-output', key, JSON.stringify(event.raw));
-          // Print Claude's output to server console
           if (event.text) {
             console.log(`[CLAUDE] ${event.text}`);
           } else if (event.type === 'init') {
@@ -148,7 +174,6 @@ export class PipelineManager extends EventEmitter {
           }
         },
         onOutput: (raw: string) => {
-          // Print raw output lines that aren't JSON (stderr-like messages)
           for (const line of raw.split('\n')) {
             const trimmed = line.trim();
             if (trimmed && !trimmed.startsWith('{')) {
@@ -167,9 +192,22 @@ export class PipelineManager extends EventEmitter {
         throw new Error(result.resultText);
       }
 
+      // 4. Commit and push from the worktree
+      await commitAndPush(
+        worktreePath,
+        branch,
+        task.key,
+        task.summary,
+        task.issueType,
+        task.jiraUrl,
+        this.config.git.pushRemote,
+      );
+      console.log(`[PIPELINE] Changes committed and pushed`);
+
       this.transitionTask(key, 'complete', {
         claudeSessionId: result.sessionId,
         claudeCostUsd: result.costUsd,
+        claudeResultText: result.resultText,
         logPath,
         completedAt: new Date().toISOString(),
       });
@@ -185,7 +223,16 @@ export class PipelineManager extends EventEmitter {
         logPath,
       });
     } finally {
-      this.running = false;
+      // 5. Clean up worktree
+      if (worktreePath && gitRepoPath) {
+        try {
+          await removeWorktree(gitRepoPath, worktreePath);
+          console.log(`[PIPELINE] Worktree removed: ${worktreePath}`);
+        } catch (err) {
+          console.warn(`[PIPELINE] Failed to remove worktree: ${(err as Error).message}`);
+        }
+      }
+      this.activeCount--;
       this.processQueue();
     }
   }

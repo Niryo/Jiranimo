@@ -66,11 +66,10 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('https://test.atlassian.net/browse/PROJ-123');
   });
 
-  it('includes instruction to find correct project and create branch', () => {
+  it('includes instruction to implement without running git', () => {
     const prompt = buildPrompt(baseTask);
-    expect(prompt).toContain('identify the correct one');
-    expect(prompt).toContain('Create a new git branch');
-    expect(prompt).toContain('PROJ-123');
+    expect(prompt).toContain('Do NOT run git commands');
+    expect(prompt).toContain('feature branch');
   });
 
   it('truncates very long descriptions', () => {
