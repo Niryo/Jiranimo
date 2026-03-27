@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Jiranimo",
+  "version": "1.0.0",
+  "description": "Implement Jira tasks with Claude Code",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://*.atlassian.net/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [{
+    "matches": [
+      "https://*.atlassian.net/jira/software/projects/*/boards/*",
+      "https://*.atlassian.net/jira/software/c/projects/*/boards/*"
+    ],
+    "js": ["lib/adf-to-markdown.js", "lib/jira-api.js", "content/board-config.js", "content/content.js"],
+    "css": ["content/content.css"]
+  }],
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.test
+*.db
+*.log
+.DS_Store
+server/test/e2e/screenshots/
+~/.jiranimo/
+.idea
+server/.dev-state.json
+server/.dev-logs/
+.chrome-dev-profile/
+.dev-pids
+

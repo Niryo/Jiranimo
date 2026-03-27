@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Jiranimo Settings</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 480px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #172b4d;
+    }
+    h1 { font-size: 22px; margin-bottom: 24px; }
+    label { display: block; margin: 16px 0 4px; font-size: 13px; font-weight: 600; color: #6b778c; }
+    input { width: 100%; padding: 8px 12px; border: 1px solid #dfe1e6; border-radius: 4px; font-size: 14px; }
+    button { margin-top: 20px; padding: 8px 20px; background: #0052cc; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+    button:hover { background: #0065ff; }
+    .saved { color: #36b37e; font-size: 13px; margin-left: 8px; display: none; }
+    .boards-list { margin-top: 24px; }
+    .boards-list h2 { font-size: 16px; margin-bottom: 8px; }
+    .board-item { padding: 8px; border: 1px solid #dfe1e6; border-radius: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .board-item button { margin: 0; padding: 4px 10px; font-size: 12px; background: #de350b; }
+  </style>
+</head>
+<body>
+  <h1>Jiranimo Settings</h1>
+
+  <label for="jira-host">Jira Host</label>
+  <input id="jira-host" type="text" placeholder="mycompany.atlassian.net" />
+
+  <label for="server-url">Server URL</label>
+  <input id="server-url" type="text" placeholder="http://localhost:3456" />
+
+  <label for="default-label">Default Trigger Label</label>
+  <input id="default-label" type="text" placeholder="ai-ready" />
+
+  <button id="save-btn">Save</button>
+  <span class="saved" id="saved-msg">Saved!</span>
+
+  <div class="boards-list" id="boards-section">
+    <h2>Configured Boards</h2>
+    <div id="boards-list"></div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,119 @@
+.jiranimo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-top: 4px;
+  transition: background 0.15s;
+}
+
+.jiranimo-badge.idle {
+  background: #0052cc;
+  color: #fff;
+}
+.jiranimo-badge.idle:hover {
+  background: #0065ff;
+}
+
+.jiranimo-badge.sending {
+  background: #6b778c;
+  color: #fff;
+  cursor: wait;
+}
+
+.jiranimo-badge.queued {
+  background: #ff991f;
+  color: #172b4d;
+}
+
+.jiranimo-badge.in-progress {
+  background: #0052cc;
+  color: #fff;
+  animation: jiranimo-pulse 1.5s ease-in-out infinite;
+}
+
+.jiranimo-badge.completed {
+  background: #36b37e;
+  color: #fff;
+}
+
+.jiranimo-badge.completed:hover {
+  background: #2d9f6f;
+}
+
+.jiranimo-badge.failed {
+  background: #de350b;
+  color: #fff;
+}
+.jiranimo-badge.failed:hover {
+  background: #ff5630;
+}
+
+@keyframes jiranimo-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.jiranimo-config-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(9, 30, 66, 0.54);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.jiranimo-config-modal {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  width: 420px;
+  max-width: 90vw;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  color: #172b4d;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.jiranimo-config-modal h2 {
+  margin: 0 0 16px;
+  font-size: 18px;
+}
+
+.jiranimo-config-modal label {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b778c;
+}
+
+.jiranimo-config-modal select,
+.jiranimo-config-modal input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.jiranimo-config-modal button {
+  margin-top: 16px;
+  padding: 8px 16px;
+  background: #0052cc;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.jiranimo-config-modal button:hover {
+  background: #0065ff;
+}

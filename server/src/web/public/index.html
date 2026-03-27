@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jiranimo Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Jiranimo</h1>
+    <div id="status-bar">
+      <span id="ws-status" class="disconnected">Disconnected</span>
+      <span id="task-counts"></span>
+    </div>
+  </header>
+
+  <main>
+    <section id="queued-section">
+      <h2>Queued</h2>
+      <div id="queued-tasks" class="task-list"></div>
+    </section>
+
+    <section id="in-progress-section">
+      <h2>In Progress</h2>
+      <div id="in-progress-tasks" class="task-list"></div>
+    </section>
+
+    <section id="completed-section">
+      <h2>Completed</h2>
+      <div id="completed-tasks" class="task-list"></div>
+    </section>
+
+    <section id="failed-section">
+      <h2>Failed</h2>
+      <div id="failed-tasks" class="task-list"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
