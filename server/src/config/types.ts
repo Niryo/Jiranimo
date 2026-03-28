@@ -24,7 +24,7 @@ export interface WebConfig {
 }
 
 export interface ServerConfig {
-  repoPath: string;
+  reposRoot: string;
   claude: ClaudeConfig;
   pipeline: PipelineConfig;
   git: GitConfig;

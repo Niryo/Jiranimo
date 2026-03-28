@@ -1,19 +1,16 @@
 import { EventEmitter } from 'node:events';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { homedir } from 'node:os';
-import { writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import type { ServerConfig } from '../config/types.js';
-import type { TaskRecord, TaskStatus } from '../state/types.js';
+import type { TaskRecord } from '../state/types.js';
 import type { ClaudeEvent, ExecutionResult, TaskInput } from '../claude/types.js';
 import { StateStore } from '../state/store.js';
 import { transition } from './state-machine.js';
 import { buildPrompt } from '../claude/prompt-builder.js';
 import { executeClaudeCode } from '../claude/executor.js';
-import { commitAndPush } from '../git/branch.js';
-import { createWorktree, removeWorktree, findGitRepo, detectDefaultBranch } from '../git/worktree.js';
-import { branchName } from '../git/branch.js';
-import { createDraftPr, buildPrTitle, buildPrBody } from '../git/pr.js';
+import { pickRepo } from '../repo-picker.js';
+import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
 
 export class PipelineManager extends EventEmitter {
   private store: StateStore;
@@ -52,8 +49,6 @@ export class PipelineManager extends EventEmitter {
       parentKey: input.parentKey,
       jiraUrl: input.jiraUrl,
       status: 'queued',
-      // Preserve branch name from previous attempt so we continue on the same branch
-      branchName: existing?.branchName,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -78,6 +73,29 @@ export class PipelineManager extends EventEmitter {
     this.emit('task-status-changed', this.store.getTask(key)!, oldStatus);
     setImmediate(() => this.processQueue());
     return this.store.getTask(key)!;
+  }
+
+  // Public methods called by MCP tool handlers
+  reportProgress(key: string, message: string): void {
+    this.emit('task-output', key, JSON.stringify({ type: 'progress', text: message }));
+  }
+
+  reportPr(key: string, prUrl: string, prNumber: number, branchName: string): void {
+    const current = this.store.getTask(key);
+    if (!current) return;
+    this.store.updateTaskStatus(key, current.status, { prUrl, prNumber, branchName });
+    this.store.flushSync();
+  }
+
+  completeViaAgent(key: string, summary: string): void {
+    this.transitionTask(key, 'complete', {
+      claudeResultText: summary,
+      completedAt: new Date().toISOString(),
+    });
+  }
+
+  failViaAgent(key: string, errorMessage: string): void {
+    this.transitionTask(key, 'fail', { errorMessage });
   }
 
   private processQueue(): void {
@@ -114,13 +132,11 @@ export class PipelineManager extends EventEmitter {
 
   private async runTask(key: string): Promise<void> {
     const task = this.store.getTask(key)!;
-    const repoRoot = this.config.repoPath;
 
     this.activeCount++;
     console.log(`\n${'='.repeat(60)}`);
     const concurrencyLabel = this.config.pipeline.concurrency === 0 ? 'unlimited' : String(this.config.pipeline.concurrency);
     console.log(`[PIPELINE] Starting task: ${task.key} — ${task.summary} (${this.activeCount}/${concurrencyLabel} active)`);
-    console.log(`[PIPELINE] Repo root: ${repoRoot}`);
     console.log(`${'='.repeat(60)}`);
     this.transitionTask(key, 'start', { startedAt: new Date().toISOString() });
 
@@ -128,46 +144,27 @@ export class PipelineManager extends EventEmitter {
     mkdirSync(logsDir, { recursive: true });
     const logPath = join(logsDir, `${key}-${Date.now()}.jsonl`);
     const logLines: string[] = [];
-    let worktreePath: string | null = null;
-    let gitRepoPath: string | null = null;
+    let workDir: string | null = null;
 
     try {
-      // 1. Find the git repo inside repoRoot
-      gitRepoPath = await findGitRepo(repoRoot);
-      if (!gitRepoPath) {
-        throw new Error(`No git repository found in ${repoRoot}`);
-      }
-      console.log(`[PIPELINE] Git repo: ${gitRepoPath}`);
+      // 1. Discover which repo to use
+      const repoPath = await pickRepo(this.config.reposRoot, task);
+      console.log(`[PIPELINE] Selected repo: ${repoPath}`);
 
-      // Detect the actual default branch (config may say 'main' but repo uses 'master')
-      const baseBranch = await detectDefaultBranch(gitRepoPath, this.config.git.pushRemote);
-      console.log(`[PIPELINE] Base branch: ${baseBranch}`);
+      // 2. Create isolated work dir and write .mcp.json so Claude can call back
+      workDir = mkdtempSync(join(tmpdir(), `jiranimo-${key}-`));
+      writeMcpConfig(workDir, this.config.web.port);
 
-      // 2. Create a worktree for this task (isolated from user's working directory)
-      // Reuse existing branch name if this is a re-implementation, otherwise generate a new one
-      const branch = task.branchName ?? branchName(this.config.git.branchPrefix, task.key, task.summary);
-      worktreePath = await createWorktree(
-        gitRepoPath,
-        task.key,
-        branch,
-        baseBranch,
-        this.config.git.pushRemote,
-      );
-      console.log(`[PIPELINE] Worktree created: ${worktreePath}`);
-      console.log(`[PIPELINE] Branch: ${branch}`);
-      this.store.updateTaskStatus(key, 'in-progress', { branchName: branch });
-
-      // 3. Build prompt and run Claude in the worktree
-      const prompt = buildPrompt(task, this.config.claude.appendSystemPrompt);
-
+      // 3. Build prompt with all task context + git/MCP instructions
+      const prompt = buildPrompt({ ...task, comments: task.comments ?? [] }, this.config, repoPath);
       console.log(`[PIPELINE] Prompt built (${prompt.length} chars)`);
-      console.log(`[PIPELINE] Spawning Claude Code in worktree...`);
+      console.log(`[PIPELINE] Spawning Claude Code...`);
       console.log(`${'─'.repeat(60)}`);
 
       let sessionLogged = false;
       const result: ExecutionResult = await executeClaudeCode({
         prompt,
-        cwd: worktreePath,
+        cwd: workDir,
         config: this.config.claude,
         timeoutMs: 30 * 60 * 1000,
         onEvent: (event: ClaudeEvent) => {
@@ -197,78 +194,47 @@ export class PipelineManager extends EventEmitter {
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
       console.log(`[PIPELINE] Logs saved to: ${logPath}`);
 
-      if (!result.success) {
-        throw new Error(result.resultText);
-      }
-
-      // 4. Commit and push from the worktree
-      await commitAndPush(
-        worktreePath,
-        branch,
-        task.key,
-        task.summary,
-        task.issueType,
-        task.jiraUrl,
-        this.config.git.pushRemote,
-      );
-      console.log(`[PIPELINE] Changes committed and pushed`);
-
-      // 5. Create a draft PR if configured
-      let prUrl: string | undefined;
-      let prNumber: number | undefined;
-      if (this.config.git.createDraftPr) {
-        try {
-          const pr = await createDraftPr({
-            cwd: worktreePath,
-            baseBranch,
-            headBranch: branch,
-            title: buildPrTitle(task.key, task.summary),
-            body: buildPrBody({
-              issueKey: task.key,
-              summary: task.summary,
-              description: task.description,
-              jiraUrl: task.jiraUrl,
-              resultText: result.resultText,
-              costUsd: result.costUsd,
-              durationMs: result.durationMs,
-            }),
-          });
-          prUrl = pr.url;
-          prNumber = pr.number;
-          console.log(`[PIPELINE] Draft PR created: ${prUrl}`);
-        } catch (err) {
-          console.warn(`[PIPELINE] PR creation failed (non-fatal): ${(err as Error).message}`);
-        }
-      }
-
-      this.transitionTask(key, 'complete', {
+      // 4. Persist cost/session regardless of how the task was transitioned
+      this.store.updateTaskStatus(key, this.store.getTask(key)!.status, {
         claudeSessionId: result.sessionId,
         claudeCostUsd: result.costUsd,
-        claudeResultText: result.resultText,
-        prUrl,
-        prNumber,
         logPath,
-        completedAt: new Date().toISOString(),
       });
-      console.log(`[PIPELINE] ✓ Task ${key} completed successfully`);
+      this.store.flushSync();
+
+      // 5. Fallback: if Claude didn't call jiranimo_complete/fail via MCP, use process exit
+      const currentStatus = this.store.getTask(key)!.status;
+      if (currentStatus === 'in-progress') {
+        if (!result.success) {
+          throw new Error(result.resultText ?? 'Claude exited with failure');
+        }
+        this.transitionTask(key, 'complete', {
+          claudeResultText: result.resultText,
+          completedAt: new Date().toISOString(),
+        });
+      }
+
+      console.log(`[PIPELINE] ✓ Task ${key} completed`);
       console.log(`${'='.repeat(60)}\n`);
     } catch (err) {
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
       console.error(`[PIPELINE] ✗ Task ${key} failed: ${(err as Error).message}`);
       console.log(`[PIPELINE] Logs: ${logPath}`);
       console.log(`${'='.repeat(60)}\n`);
-      this.transitionTask(key, 'fail', {
-        errorMessage: (err as Error).message,
-        logPath,
-      });
+      const currentStatus = this.store.getTask(key)?.status;
+      if (currentStatus === 'in-progress') {
+        this.transitionTask(key, 'fail', {
+          errorMessage: (err as Error).message,
+          logPath,
+        });
+      }
     } finally {
-      // 5. Clean up worktree
-      if (worktreePath && gitRepoPath) {
+      if (workDir) {
+        deleteMcpConfig(workDir);
         try {
-          await removeWorktree(gitRepoPath, worktreePath);
-          console.log(`[PIPELINE] Worktree removed: ${worktreePath}`);
-        } catch (err) {
-          console.warn(`[PIPELINE] Failed to remove worktree: ${(err as Error).message}`);
+          rmSync(workDir, { recursive: true, force: true });
+        } catch {
+          // ignore cleanup errors
         }
       }
       this.activeCount--;

@@ -3,9 +3,9 @@
  *
  * Tests the complete flow:
  *   1. Create a Jira issue with "ai-ready" label
- *   2. Start the server pointing to a repo root (may have multiple projects)
+ *   2. Start the server pointing to a repos root (directory containing repos)
  *   3. Submit the task to the server (simulating extension)
- *   4. Fake Claude runs in the repo root directory
+ *   4. Fake Claude runs and completes the task
  *   5. Verify: task status is "completed" with results
  *   6. Clean up Jira issue
  *
@@ -33,6 +33,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 let testRepo: TestRepo;
+let reposRoot: string;
 let store: StateStore;
 let pipeline: PipelineManager;
 let httpServer: HttpServer;
@@ -41,9 +42,9 @@ let stateDir: string;
 
 const FAKE_CLAUDE = `node ${resolve(import.meta.dirname, '..', 'fixtures', 'fake-claude.mjs')}`;
 
-function makeConfig(repoPath: string): ServerConfig {
+function makeConfig(reposRoot: string): ServerConfig {
   return {
-    repoPath,
+    reposRoot,
     claude: {
       maxBudgetUsd: 1.0,
       command: FAKE_CLAUDE,
@@ -92,6 +93,7 @@ afterEach(async () => {
   await cleanupTestIssues();
   await stopServer();
   testRepo?.cleanup();
+  if (reposRoot) rmSync(reposRoot, { recursive: true, force: true });
 });
 
 afterAll(async () => {
@@ -100,18 +102,21 @@ afterAll(async () => {
 });
 
 describe('Full Pipeline E2E', () => {
-  it('submits task and fake Claude runs in repo directory', async () => {
+  it('submits task and fake Claude completes it', async () => {
     startTest('submit-and-run');
 
-    testRepo = createTestRepo();
-    const config = makeConfig(testRepo.path);
+    // Create a dedicated repos root with one test repo inside
+    reposRoot = mkdtempSync(join(tmpdir(), 'jiranimo-e2e-repos-'));
+    testRepo = createTestRepo(reposRoot);
+    const config = makeConfig(reposRoot);
     serverPort = await startServer(config);
 
     await screenshot('step1-setup', {
+      reposRoot,
       repoPath: testRepo.path,
       files: testRepo.listFiles(),
       serverPort,
-    }, `Repo: ${testRepo.path}\nFiles: ${testRepo.listFiles().join(', ')}\nServer: :${serverPort}`);
+    }, `Repos root: ${reposRoot}\nRepo: ${testRepo.path}\nFiles: ${testRepo.listFiles().join(', ')}\nServer: :${serverPort}`);
 
     const issueKey = await createTestIssue({
       summary: 'Create hello script',
@@ -142,32 +147,22 @@ describe('Full Pipeline E2E', () => {
       if (task.status === 'completed' || task.status === 'failed') break;
     }
 
-    const files = testRepo.listFiles();
     await screenshot('step2-result', {
       status: task.status,
       claudeCostUsd: task.claudeCostUsd,
       errorMessage: task.errorMessage,
-      files,
-    }, `Status: ${task.status}\nCost: $${task.claudeCostUsd || 0}\n${task.errorMessage ? `Error: ${task.errorMessage}` : 'No error'}\nFiles: ${files.join(', ')}`);
+    }, `Status: ${task.status}\nCost: $${task.claudeCostUsd || 0}\n${task.errorMessage ? `Error: ${task.errorMessage}` : 'No error'}`);
 
     expect(task.status).toBe('completed');
     expect(task.claudeCostUsd).toBe(0.42);
-    expect(task.branchName).toBeTruthy();
-
-    // Verify the branch exists with a commit (worktree is cleaned up, but the branch persists)
-    const branches = testRepo.git('branch', '--list').split('\n').map(b => b.trim().replace('* ', ''));
-    expect(branches.some(b => b.startsWith('jiranimo/'))).toBe(true);
-
-    // Verify the commit is on the branch
-    const branchLog = testRepo.git('log', '--oneline', task.branchName, '-1');
-    expect(branchLog).toContain(issueKey);
   }, 30_000);
 
   it('task shows on dashboard via API', async () => {
     startTest('dashboard-api');
 
-    testRepo = createTestRepo();
-    const config = makeConfig(testRepo.path);
+    reposRoot = mkdtempSync(join(tmpdir(), 'jiranimo-e2e-repos-'));
+    testRepo = createTestRepo(reposRoot);
+    const config = makeConfig(reposRoot);
     serverPort = await startServer(config);
 
     const issueKey = await createTestIssue({

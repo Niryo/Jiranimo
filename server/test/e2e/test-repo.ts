@@ -22,8 +22,8 @@ export interface TestRepo {
  * Create a fresh git repo with a basic project structure.
  * Returns helpers for interacting with it.
  */
-export function createTestRepo(): TestRepo {
-  const repoPath = mkdtempSync(join(tmpdir(), 'jiranimo-e2e-repo-'));
+export function createTestRepo(parentDir?: string): TestRepo {
+  const repoPath = mkdtempSync(join(parentDir ?? tmpdir(), 'jiranimo-e2e-repo-'));
 
   function git(...args: string[]): string {
     return execFileSync('git', args, { cwd: repoPath, encoding: 'utf-8' }).trim();

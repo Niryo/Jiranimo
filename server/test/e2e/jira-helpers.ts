@@ -50,11 +50,29 @@ async function searchIssues(jql: string, fields: string[] = ['key'], maxResults 
   return data.issues ?? [];
 }
 
+export async function getActiveSprintId(boardId: number): Promise<number | null> {
+  const res = await jiraRequest('GET', `/rest/agile/1.0/board/${boardId}/sprint?state=active`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.values?.[0]?.id ?? null;
+}
+
+export async function addIssuesToSprint(sprintId: number, issueKeys: string[]): Promise<void> {
+  const res = await jiraRequest('POST', `/rest/agile/1.0/sprint/${sprintId}/issue`, {
+    issues: issueKeys,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn(`Failed to add issues to sprint ${sprintId}: ${res.status} ${text}`);
+  }
+}
+
 export async function createTestIssue(fields: {
   summary: string;
   projectKey?: string;
   issueType?: string;
   labels?: string[];
+  boardId?: number; // if provided, issue is added to the active sprint
 }): Promise<string> {
   const projectKey = fields.projectKey ?? 'JTEST';
   const res = await jiraRequest('POST', '/rest/api/3/issue', {
@@ -74,6 +92,14 @@ export async function createTestIssue(fields: {
   const data = await res.json();
   const key = data.key;
   createdIssueKeys.push(key);
+
+  if (fields.boardId) {
+    const sprintId = await getActiveSprintId(fields.boardId);
+    if (sprintId) {
+      await addIssuesToSprint(sprintId, [key]);
+    }
+  }
+
   return key;
 }
 
@@ -126,17 +152,17 @@ export async function addComment(key: string, text: string): Promise<void> {
 }
 
 export async function cleanupTestIssues(): Promise<void> {
-  for (const key of createdIssueKeys) {
-    await deleteIssue(key);
-  }
+  if (createdIssueKeys.length === 0) return;
+  await Promise.all(createdIssueKeys.map(key => deleteIssue(key)));
   createdIssueKeys.length = 0;
 }
 
 export async function cleanupStaleTestIssues(projectKey = 'JTEST'): Promise<void> {
-  const jql = `project = ${projectKey} AND summary ~ "test-"`;
+  // Delete ALL test issues in the project (summaries start with "test-<timestamp>")
+  const jql = `project = ${projectKey} AND summary ~ "test-" ORDER BY created ASC`;
   const issues = await searchIssues(jql, ['key'], 100);
-  for (const issue of issues) {
-    await deleteIssue(issue.key as string);
+  if (issues.length > 0) {
+    await Promise.all(issues.map(issue => deleteIssue(issue.key as string)));
   }
 }
 

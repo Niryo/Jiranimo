@@ -1,7 +1,6 @@
 import { createServer } from 'node:http';
 import { resolve, isAbsolute } from 'node:path';
 import { watch } from 'node:fs';
-import { pruneWorktrees, findGitRepo } from './git/worktree.js';
 import { loadConfig } from './config/loader.js';
 import { configExists, runSetup } from './config/setup.js';
 import { StateStore } from './state/store.js';
@@ -22,12 +21,12 @@ async function main() {
   if (DEV_MODE) {
     const devConfigPath = resolve(process.cwd(), 'jiranimo.dev.config.json');
     config = loadConfig({ configPath: devConfigPath });
-    // Self mode: operate on the Jiranimo repo itself instead of gitPlaygrounds
+    // Self mode: point reposRoot at the parent directory (contains the Jiranimo repo itself)
     if (SELF_MODE) {
-      config = { ...config, repoPath: resolve(process.cwd(), '..') };
-    } else if (!isAbsolute(config.repoPath)) {
-      // Resolve relative repoPath against cwd
-      config = { ...config, repoPath: resolve(process.cwd(), config.repoPath) };
+      config = { ...config, reposRoot: resolve(process.cwd(), '..') };
+    } else if (!isAbsolute(config.reposRoot)) {
+      // Resolve relative reposRoot against cwd
+      config = { ...config, reposRoot: resolve(process.cwd(), config.reposRoot) };
     }
     // Set dev-local paths (self mode gets its own state to avoid conflicts)
     const statePrefix = SELF_MODE ? '.dev-self' : '.dev';
@@ -38,13 +37,6 @@ async function main() {
       await runSetup();
     }
     config = loadConfig();
-  }
-
-  // Prune stale worktrees from previous crashes
-  const gitRepo = await findGitRepo(config.repoPath);
-  if (gitRepo) {
-    await pruneWorktrees(gitRepo);
-    console.log(`Pruned stale worktrees in ${gitRepo}`);
   }
 
   // State — dev uses local file, prod uses global default
@@ -63,7 +55,8 @@ async function main() {
   server.listen(config.web.port, config.web.host, () => {
     console.log(`Jiranimo server running on http://${config.web.host}:${config.web.port}`);
     console.log(`Dashboard: http://${config.web.host}:${config.web.port}`);
-    console.log(`Repo path: ${config.repoPath}`);
+    console.log(`Repos root: ${config.reposRoot}`);
+    console.log(`MCP endpoint: http://${config.web.host}:${config.web.port}/mcp`);
 
     if (DEV_MODE) {
       console.log(`\n[DEV] Config: ${resolve(process.cwd(), 'jiranimo.dev.config.json')}`);

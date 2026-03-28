@@ -18,24 +18,20 @@ vi.mock('../claude/executor.js', () => ({
   }),
 }));
 
-// Mock git operations (worktree, commit)
-vi.mock('../git/worktree.js', () => ({
-  findGitRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
-  createWorktree: vi.fn().mockResolvedValue('/tmp/test-repo/.jiranimo-worktrees/PROJ-1'),
-  removeWorktree: vi.fn().mockResolvedValue(undefined),
-  detectDefaultBranch: vi.fn().mockResolvedValue('main'),
+// Mock repo picker
+vi.mock('../repo-picker.js', () => ({
+  pickRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
 }));
 
-vi.mock('../git/branch.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../git/branch.js')>();
-  return {
-    ...original,
-    commitAndPush: vi.fn().mockResolvedValue(undefined),
-  };
-});
+// Mock MCP config helpers
+vi.mock('../mcp/server.js', () => ({
+  createMcpHandler: vi.fn(),
+  writeMcpConfig: vi.fn(),
+  deleteMcpConfig: vi.fn(),
+}));
 
 const testConfig: ServerConfig = {
-  repoPath: '/tmp/test-repo',
+  reposRoot: '/tmp/repos',
   claude: { maxBudgetUsd: 2.0 },
   pipeline: { concurrency: 1 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },
@@ -91,13 +87,11 @@ describe('PipelineManager', () => {
     const mgr = new PipelineManager(store, testConfig);
     mgr.submitTask(sampleInput);
 
-    // Wait for async processing
     await new Promise(r => setTimeout(r, 100));
 
     const task = store.getTask('PROJ-1');
     expect(task?.status).toBe('completed');
 
-    // Resubmit should work
     const resubmitted = mgr.submitTask(sampleInput);
     expect(resubmitted.status).toBe('queued');
     store.destroy();
@@ -110,7 +104,6 @@ describe('PipelineManager', () => {
 
     mgr.submitTask(sampleInput);
 
-    // Wait for async processing
     await new Promise(r => setTimeout(r, 200));
 
     const task = store.getTask('PROJ-1');
@@ -124,7 +117,6 @@ describe('PipelineManager', () => {
   it('retries a failed task', async () => {
     const { executeClaudeCode } = await import('../claude/executor.js');
 
-    // First call fails
     vi.mocked(executeClaudeCode)
       .mockResolvedValueOnce({ success: false, resultText: 'Error', durationMs: 100 })
       .mockResolvedValueOnce({ success: true, resultText: 'Done', sessionId: 's', costUsd: 0.1, durationMs: 100 });
@@ -151,7 +143,6 @@ describe('PipelineManager', () => {
   it('logs session started only once even when multiple init events arrive', async () => {
     const { executeClaudeCode } = await import('../claude/executor.js');
 
-    // Simulate Claude emitting multiple system/init events with the same session ID
     vi.mocked(executeClaudeCode).mockImplementationOnce(async (opts) => {
       const onEvent = opts.onEvent!;
       onEvent({ type: 'init', raw: { type: 'system', session_id: 'sess-abc' }, sessionId: 'sess-abc' });
@@ -172,6 +163,44 @@ describe('PipelineManager', () => {
 
     expect(sessionLogs).toHaveLength(1);
     consoleSpy.mockRestore();
+    store.destroy();
+  });
+
+  it('reportProgress emits task-output event', () => {
+    const mgr = new PipelineManager(store, testConfig);
+    const handler = vi.fn();
+    mgr.on('task-output', handler);
+    mgr.reportProgress('PROJ-1', 'Running tests...');
+    expect(handler).toHaveBeenCalledWith('PROJ-1', expect.stringContaining('Running tests'));
+    store.destroy();
+  });
+
+  it('reportPr stores PR info in task state', () => {
+    const mgr = new PipelineManager(store, testConfig);
+    mgr.submitTask(sampleInput);
+    mgr.reportPr('PROJ-1', 'https://github.com/org/repo/pull/42', 42, 'jiranimo/PROJ-1-feature');
+    const task = store.getTask('PROJ-1');
+    expect(task?.prUrl).toBe('https://github.com/org/repo/pull/42');
+    expect(task?.prNumber).toBe(42);
+    expect(task?.branchName).toBe('jiranimo/PROJ-1-feature');
+    store.destroy();
+  });
+
+  it('completeViaAgent transitions in-progress task to completed with summary', () => {
+    const mgr = new PipelineManager(store, testConfig);
+    // Directly set a task as in-progress to test the method in isolation
+    store.upsertTask({
+      key: 'PROJ-1', summary: 'Test', description: 'Test',
+      priority: 'High', issueType: 'Story', labels: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
+      status: 'in-progress', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+
+    mgr.completeViaAgent('PROJ-1', 'Implemented and PR created');
+
+    const task = store.getTask('PROJ-1');
+    expect(task?.status).toBe('completed');
+    expect(task?.claudeResultText).toBe('Implemented and PR created');
     store.destroy();
   });
 });

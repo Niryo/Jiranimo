@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 vi.mock('node:fs');
 
 const validConfig = JSON.stringify({
-  repoPath: '/tmp/repo',
+  reposRoot: '/tmp/repos',
 });
 
 beforeEach(() => {
@@ -21,7 +21,7 @@ describe('loadConfig', () => {
     vi.mocked(fs.readFileSync).mockReturnValue(validConfig);
 
     const config = loadConfig({ configPath: '/fake/config.json' });
-    expect(config.repoPath).toBe('/tmp/repo');
+    expect(config.reposRoot).toBe('/tmp/repos');
     expect(config.claude.maxBudgetUsd).toBe(2.0);
   });
 
@@ -58,23 +58,23 @@ describe('loadConfig', () => {
   });
 
   it('resolves $ENV_VAR references in string values', () => {
-    process.env.TEST_REPO_PATH = '/resolved/path';
+    process.env.TEST_REPOS_ROOT = '/resolved/path';
 
     vi.mocked(fs.readFileSync).mockReturnValue(
-      JSON.stringify({ repoPath: '$TEST_REPO_PATH' })
+      JSON.stringify({ reposRoot: '$TEST_REPOS_ROOT' })
     );
 
     const config = loadConfig({ configPath: '/fake/config.json' });
-    expect(config.repoPath).toBe('/resolved/path');
+    expect(config.reposRoot).toBe('/resolved/path');
 
-    delete process.env.TEST_REPO_PATH;
+    delete process.env.TEST_REPOS_ROOT;
   });
 
   it('throws when referenced env var is not set', () => {
     delete process.env.NONEXISTENT_VAR;
 
     vi.mocked(fs.readFileSync).mockReturnValue(
-      JSON.stringify({ repoPath: '$NONEXISTENT_VAR' })
+      JSON.stringify({ reposRoot: '$NONEXISTENT_VAR' })
     );
 
     expect(() => loadConfig({ configPath: '/fake/config.json' }))
@@ -90,7 +90,7 @@ describe('loadConfig', () => {
     });
 
     const config = loadConfig({ searchPaths: ['/first/config.json', '/second/config.json'] });
-    expect(config.repoPath).toBe('/tmp/repo');
+    expect(config.reposRoot).toBe('/tmp/repos');
     // findConfigFile reads once to check existence, loadConfig reads again to parse
     expect(callCount).toBe(3);
   });

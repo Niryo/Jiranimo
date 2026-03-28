@@ -155,7 +155,7 @@ beforeAll(async () => {
   if (existsSync(SCREENSHOTS_DIR)) rmSync(SCREENSHOTS_DIR, { recursive: true, force: true });
   mkdirSync(SCREENSHOTS_DIR, { recursive: true });
   serverPort = await startMockServer();
-  browser = await chromium.launch();
+  browser = await chromium.launch({ headless: process.env.PWHEADLESS !== 'false' });
 });
 
 afterAll(async () => {

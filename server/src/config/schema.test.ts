@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { serverConfigSchema } from './schema.js';
 
 const validMinimal = {
-  repoPath: '/tmp/repo',
+  reposRoot: '/tmp/repos',
 };
 
 const validFull = {
-  repoPath: '/tmp/repo',
+  reposRoot: '/tmp/repos',
   claude: { model: 'sonnet', maxBudgetUsd: 5.0, allowedTools: ['Edit', 'Read'] },
   pipeline: { concurrency: 3 },
   git: { branchPrefix: 'auto/', defaultBaseBranch: 'develop', pushRemote: 'upstream', createDraftPr: false },
@@ -16,9 +16,9 @@ const validFull = {
 describe('serverConfigSchema', () => {
   it('accepts minimal valid config and applies defaults', () => {
     const result = serverConfigSchema.parse(validMinimal);
-    expect(result.repoPath).toBe('/tmp/repo');
+    expect(result.reposRoot).toBe('/tmp/repos');
     expect(result.claude.maxBudgetUsd).toBe(2.0);
-    expect(result.pipeline.concurrency).toBe(0);
+    expect(result.pipeline.concurrency).toBe(1);
     expect(result.git.branchPrefix).toBe('jiranimo/');
     expect(result.git.defaultBaseBranch).toBe('main');
     expect(result.git.pushRemote).toBe('origin');
@@ -36,13 +36,13 @@ describe('serverConfigSchema', () => {
     expect(result.web.port).toBe(8080);
   });
 
-  it('rejects config with missing repoPath', () => {
+  it('rejects config with missing reposRoot', () => {
     const result = serverConfigSchema.safeParse({});
     expect(result.success).toBe(false);
   });
 
-  it('rejects config with empty repoPath', () => {
-    const result = serverConfigSchema.safeParse({ repoPath: '' });
+  it('rejects config with empty reposRoot', () => {
+    const result = serverConfigSchema.safeParse({ reposRoot: '' });
     expect(result.success).toBe(false);
   });
 
@@ -54,12 +54,12 @@ describe('serverConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects zero concurrency', () => {
+  it('accepts zero concurrency (means unlimited)', () => {
     const result = serverConfigSchema.safeParse({
       ...validMinimal,
       pipeline: { concurrency: 0 },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it('rejects port out of range', () => {

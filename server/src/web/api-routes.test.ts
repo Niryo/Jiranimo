@@ -13,19 +13,17 @@ vi.mock('../claude/executor.js', () => ({
     success: true, resultText: 'Done', sessionId: 's', costUsd: 0.5, durationMs: 1000,
   }),
 }));
-vi.mock('../git/worktree.js', () => ({
-  findGitRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
-  createWorktree: vi.fn().mockResolvedValue('/tmp/test-repo/.jiranimo-worktrees/PROJ-1'),
-  removeWorktree: vi.fn().mockResolvedValue(undefined),
-  detectDefaultBranch: vi.fn().mockResolvedValue('main'),
+vi.mock('../repo-picker.js', () => ({
+  pickRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
 }));
-vi.mock('../git/branch.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../git/branch.js')>();
-  return { ...original, commitAndPush: vi.fn().mockResolvedValue(undefined) };
-});
+vi.mock('../mcp/server.js', () => ({
+  createMcpHandler: vi.fn().mockReturnValue(vi.fn()),
+  writeMcpConfig: vi.fn(),
+  deleteMcpConfig: vi.fn(),
+}));
 
 const testConfig: ServerConfig = {
-  repoPath: '/tmp/test-repo',
+  reposRoot: '/tmp/repos',
   claude: { maxBudgetUsd: 2.0 },
   pipeline: { concurrency: 1 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },
@@ -89,7 +87,6 @@ describe('POST /api/tasks', () => {
   });
 
   it('returns 409 for duplicate task that is still queued', async () => {
-    // Manually put a task in queued state to avoid race with async processing
     store.upsertTask({
       key: 'PROJ-1', summary: 'Test', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
@@ -146,7 +143,6 @@ describe('DELETE /api/tasks/:key', () => {
     expect(res.status).toBe(200);
     expect(res.body.deleted).toBe(true);
 
-    // Verify it's gone
     const getRes = await request(app).get('/api/tasks/PROJ-1');
     expect(getRes.status).toBe(404);
   });
@@ -164,7 +160,14 @@ describe('POST /api/tasks/:key/retry', () => {
   });
 
   it('returns 400 for non-failed task', async () => {
-    await request(app).post('/api/tasks').send(validTask);
+    // Insert a queued task directly (bypass async processing) to test state validation
+    store.upsertTask({
+      key: 'PROJ-1', summary: 'Test', description: 'Test',
+      priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
+      status: 'queued', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
     const res = await request(app).post('/api/tasks/PROJ-1/retry');
     expect(res.status).toBe(400);
   });
@@ -177,7 +180,6 @@ describe('GET /api/tasks/:key/logs', () => {
   });
 
   it('returns 404 when task has no logs', async () => {
-    // Manually create a task with no logPath to avoid async processing setting one
     store.upsertTask({
       key: 'PROJ-2', summary: 'No logs', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-2',

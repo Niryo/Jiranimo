@@ -25,7 +25,7 @@ export async function initScreenshots(): Promise<void> {
     rmSync(SCREENSHOTS_DIR, { recursive: true, force: true });
   }
   mkdirSync(SCREENSHOTS_DIR, { recursive: true });
-  browser = await chromium.launch();
+  browser = await chromium.launch({ headless: process.env.PWHEADLESS !== 'false' });
 }
 
 export async function closeScreenshots(): Promise<void> {
