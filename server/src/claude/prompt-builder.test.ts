@@ -38,41 +38,38 @@ describe('buildPrompt', () => {
 
   it('includes acceptance criteria when present', () => {
     const prompt = buildPrompt({ ...baseTask, acceptanceCriteria: 'Avatar must be 64x64' }, baseConfig, repoPath);
-    expect(prompt).toContain('Acceptance Criteria');
     expect(prompt).toContain('Avatar must be 64x64');
   });
 
-  it('omits acceptance criteria section when not present', () => {
+  it('omits acceptance criteria when not present', () => {
     const prompt = buildPrompt(baseTask, baseConfig, repoPath);
-    expect(prompt).not.toContain('Acceptance Criteria');
+    expect(prompt).not.toContain('acceptanceCriteria');
   });
 
-  it('includes recent comments', () => {
+  it('includes comments', () => {
     const prompt = buildPrompt({
       ...baseTask,
       comments: [{ author: 'PM', body: 'Use the existing component' }],
     }, baseConfig, repoPath);
-    expect(prompt).toContain('Recent Comments');
-    expect(prompt).toContain('**PM**: Use the existing component');
+    expect(prompt).toContain('PM');
+    expect(prompt).toContain('Use the existing component');
   });
 
-  it('limits comments to last 10', () => {
+  it('includes all comments as-is', () => {
     const comments = Array.from({ length: 15 }, (_, i) => ({
       author: `User${i}`,
       body: `Comment ${i}`,
     }));
     const prompt = buildPrompt({ ...baseTask, comments }, baseConfig, repoPath);
-    expect(prompt).not.toContain('Comment 0');
-    expect(prompt).not.toContain('Comment 4');
-    expect(prompt).toContain('Comment 5');
+    expect(prompt).toContain('Comment 0');
     expect(prompt).toContain('Comment 14');
   });
 
   it('includes metadata (priority, type, labels, url)', () => {
     const prompt = buildPrompt(baseTask, baseConfig, repoPath);
-    expect(prompt).toContain('Priority: High');
-    expect(prompt).toContain('Type: Story');
-    expect(prompt).toContain('frontend, ai-ready');
+    expect(prompt).toContain('High');
+    expect(prompt).toContain('Story');
+    expect(prompt).toContain('frontend');
     expect(prompt).toContain('https://test.atlassian.net/browse/PROJ-123');
   });
 
@@ -102,16 +99,15 @@ describe('buildPrompt', () => {
     expect(prompt).not.toContain('gh pr create --draft');
   });
 
-  it('truncates very long descriptions', () => {
+  it('includes full description without truncation', () => {
     const longDesc = 'x'.repeat(15_000);
     const prompt = buildPrompt({ ...baseTask, description: longDesc }, baseConfig, repoPath);
-    expect(prompt).toContain('(description truncated)');
-    expect(prompt.length).toBeLessThan(15_000 + 5000);
+    expect(prompt).toContain('x'.repeat(15_000));
   });
 
   it('handles missing description', () => {
     const prompt = buildPrompt({ ...baseTask, description: '' }, baseConfig, repoPath);
-    expect(prompt).toContain('No description provided');
+    expect(prompt).toContain('"description": ""');
   });
 
   it('appends appendSystemPrompt when set', () => {
@@ -122,7 +118,7 @@ describe('buildPrompt', () => {
 
   it('handles empty labels', () => {
     const prompt = buildPrompt({ ...baseTask, labels: [] }, baseConfig, repoPath);
-    expect(prompt).toContain('Labels: none');
+    expect(prompt).toContain('"labels": []');
   });
 
   it('embeds branchPrefix and defaultBaseBranch in git instructions', () => {
