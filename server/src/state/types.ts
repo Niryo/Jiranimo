@@ -1,4 +1,5 @@
 export type TaskStatus = 'queued' | 'in-progress' | 'completed' | 'failed';
+export type TaskMode = 'plan' | 'implement';
 
 export interface TaskRecord {
   key: string;
@@ -24,6 +25,8 @@ export interface TaskRecord {
   claudeSessionId?: string;
   claudeCostUsd?: number;
   claudeResultText?: string;
+  taskMode?: TaskMode;
+  planContent?: string;
   errorMessage?: string;
   logPath?: string;
   createdAt: string;

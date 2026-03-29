@@ -47,6 +47,10 @@ export class WsHandler {
     pipeline.on('task-completed', (task: TaskRecord) => {
       this.send({ type: 'task-completed', task });
     });
+
+    pipeline.on('task-plan-ready', (taskKey: string, planContent: string) => {
+      this.send({ type: 'task-plan-ready', taskKey, planContent });
+    });
   }
 
   /** Send a message to all connected clients, or queue it if none are connected. */

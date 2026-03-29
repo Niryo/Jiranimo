@@ -565,24 +565,29 @@
         updateBadgeState(badge, task.key, task.status);
       }
 
-      // Update Jira when task completes: transition + summary comment
+      // Update Jira when task completes: transition + comment
       if (task.status === 'completed' && oldStatus !== 'completed') {
         if (boardConfig?.transitions?.inReview) {
           transitionIssue(task.key, boardConfig.transitions.inReview.name);
         }
-        postCompletionComment(task);
+        // Plan tasks: comment is posted via task-plan-ready (after server reads the plan file)
+        if (task.taskMode !== 'plan') {
+          postCompletionComment(task);
+        }
       }
 
       log(`Task ${task.key}: ${oldStatus || 'new'} → ${task.status}`);
     }
 
-    // Server tells us to update Jira status — we use the board config to pick the right transition
+    // Server tells us to update Jira status — only for in-progress (completed is handled by task-status-changed)
     if (msg.type === 'update-jira-status' && msg.issueKey && msg.pipelineStatus) {
       if (msg.pipelineStatus === 'in-progress' && boardConfig?.transitions?.inProgress) {
         transitionIssue(msg.issueKey, boardConfig.transitions.inProgress.name);
-      } else if (msg.pipelineStatus === 'completed' && boardConfig?.transitions?.inReview) {
-        transitionIssue(msg.issueKey, boardConfig.transitions.inReview.name);
       }
+    }
+
+    if (msg.type === 'task-plan-ready' && msg.taskKey && msg.planContent) {
+      postJiraComment(msg.taskKey, msg.planContent);
     }
   }
 

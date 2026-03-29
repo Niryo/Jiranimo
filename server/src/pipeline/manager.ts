@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import type { ServerConfig } from '../config/types.js';
@@ -7,7 +7,8 @@ import type { TaskRecord } from '../state/types.js';
 import type { ClaudeEvent, ExecutionResult, TaskInput } from '../claude/types.js';
 import { StateStore } from '../state/store.js';
 import { transition } from './state-machine.js';
-import { buildPrompt } from '../claude/prompt-builder.js';
+import { buildPrompt, planFilePath } from '../claude/prompt-builder.js';
+import { classifyTask } from '../claude/task-classifier.js';
 import { executeClaudeCode } from '../claude/executor.js';
 import { pickRepo } from '../repo-picker.js';
 import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
@@ -147,16 +148,22 @@ export class PipelineManager extends EventEmitter {
     let workDir: string | null = null;
 
     try {
-      // 1. Discover which repo to use
-      const repoPath = await pickRepo(this.config.reposRoot, task);
+      // 1. Discover repo and classify task mode in parallel
+      const [repoPath, taskMode] = await Promise.all([
+        pickRepo(this.config.reposRoot, task),
+        classifyTask(task),
+      ]);
       console.log(`[PIPELINE] Selected repo: ${repoPath}`);
+      console.log(`[PIPELINE] Task mode: ${taskMode}`);
+      this.store.updateTaskStatus(key, this.store.getTask(key)!.status, { taskMode });
+      this.store.flushSync();
 
       // 2. Create isolated work dir and write .mcp.json so Claude can call back
       workDir = mkdtempSync(join(tmpdir(), `jiranimo-${key}-`));
       writeMcpConfig(workDir, this.config.web.port);
 
       // 3. Build prompt with all task context + git/MCP instructions
-      const prompt = buildPrompt({ ...task, comments: task.comments ?? [] }, this.config, repoPath);
+      const prompt = buildPrompt({ ...task, comments: task.comments ?? [] }, this.config, repoPath, taskMode);
       console.log(`[PIPELINE] Prompt built (${prompt.length} chars)`);
       console.log(`[PIPELINE] Spawning Claude Code...`);
       console.log(`${'─'.repeat(60)}`);
@@ -201,6 +208,21 @@ export class PipelineManager extends EventEmitter {
         logPath,
       });
       this.store.flushSync();
+
+      // 5. In plan mode, read the plan file Claude wrote, persist it, then broadcast it
+      if (taskMode === 'plan') {
+        const planFile = planFilePath(key);
+        if (existsSync(planFile)) {
+          const planContent = readFileSync(planFile, 'utf-8');
+          try { rmSync(planFile); } catch { /* ignore */ }
+          console.log(`[PIPELINE] Plan file read (${planContent.length} chars)`);
+          this.store.updateTaskStatus(key, this.store.getTask(key)!.status, { planContent });
+          this.store.flushSync();
+          this.emit('task-plan-ready', key, planContent);
+        } else {
+          console.warn(`[PIPELINE] Plan mode but no plan file found at ${planFile}`);
+        }
+      }
 
       // 5. Fallback: if Claude didn't call jiranimo_complete/fail via MCP, use process exit
       const currentStatus = this.store.getTask(key)!.status;
