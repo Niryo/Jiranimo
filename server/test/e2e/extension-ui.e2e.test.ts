@@ -58,6 +58,63 @@ function startMockServer(): Promise<number> {
         });
         return;
       }
+      // Mock Jira Agile API for active sprint
+      if (req.url?.match(/\/rest\/agile\/1\.0\/board\/\d+\/sprint/)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ values: [{ id: 1, name: 'Sprint 1' }] }));
+        return;
+      }
+      // Mock Jira Agile API for sprint issues (includes labels for filtering)
+      if (req.url?.match(/\/rest\/agile\/1\.0\/sprint\/1\/issue/)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          issues: [
+            { key: 'JTEST-101', fields: { summary: 'Add user authentication flow', labels: ['ai-ready', 'frontend'] } },
+            { key: 'JTEST-102', fields: { summary: 'Update README with setup instructions', labels: [] } },
+            { key: 'JTEST-103', fields: { summary: 'Fix pagination bug on search results', labels: ['ai-ready', 'bug'] } },
+            { key: 'JTEST-100', fields: { summary: 'Set up CI/CD pipeline', labels: ['ai-ready'] } },
+          ],
+        }));
+        return;
+      }
+      // Mock individual Jira issue details (used by fetchIssueDetails on badge click)
+      const issueMatch = req.url?.match(/\/rest\/api\/3\/issue\/(JTEST-\d+)/);
+      if (issueMatch) {
+        const key = issueMatch[1];
+        const summaries: Record<string, string> = {
+          'JTEST-100': 'Set up CI/CD pipeline',
+          'JTEST-101': 'Add user authentication flow',
+          'JTEST-102': 'Update README with setup instructions',
+          'JTEST-103': 'Fix pagination bug on search results',
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          key,
+          fields: {
+            summary: summaries[key] || key,
+            description: null,
+            priority: { name: 'Medium' },
+            issuetype: { name: 'Task' },
+            labels: [],
+            comment: { comments: [] },
+            status: { name: 'To Do' },
+            subtasks: [],
+            parent: null,
+            issuelinks: [],
+            assignee: null,
+            reporter: null,
+            components: [],
+            attachment: [],
+          },
+        }));
+        return;
+      }
+      // Mock Jiranimo server API (badge click posts task here)
+      if (req.method === 'POST' && req.url === '/api/tasks') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ queued: true }));
+        return;
+      }
       // Mock Jira Agile API for board configuration
       if (req.url?.match(/\/rest\/agile\/.*\/board\/\d+\/configuration/)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -237,9 +294,6 @@ describe('Extension UI E2E', () => {
     const page = await setupPage({ presetConfig: true });
     await page.waitForSelector('[data-jiranimo]', { timeout: 5000 });
 
-    const badgeText = await page.locator('[data-jiranimo="JTEST-101"]').textContent();
-    expect(badgeText).toContain('Implement');
-
     const badgeClass = await page.locator('[data-jiranimo="JTEST-101"]').getAttribute('class');
     expect(badgeClass).toContain('idle');
 
@@ -259,8 +313,8 @@ describe('Extension UI E2E', () => {
     await page.waitForTimeout(500);
     await page.screenshot({ path: screenshotPath('badge-click', 'after-click'), fullPage: true });
 
-    const badgeText = await page.locator('[data-jiranimo="JTEST-101"]').textContent();
-    expect(badgeText).toContain('Queued');
+    const badgeClass = await page.locator('[data-jiranimo="JTEST-101"]').getAttribute('class');
+    expect(badgeClass).toContain('queued');
 
     const card = page.locator('[data-rbd-draggable-id="JTEST-101"]');
     await card.screenshot({ path: screenshotPath('badge-click', 'queued-badge-closeup') });

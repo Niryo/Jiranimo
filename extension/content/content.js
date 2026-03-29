@@ -47,6 +47,10 @@
   let boardConfig = null;
   /** @type {number|null} */
   let scanTimer = null;
+  /** @type {string|null} */
+  let currentBoardId = null;
+  /** @type {Array<{key: string, summary: string, labels: string[]}>|null} */
+  let cachedSprintIssues = null;
 
   async function init() {
     log('Content script loaded on', location.href);
@@ -55,19 +59,19 @@
     serverUrl = settings.serverUrl || 'http://localhost:3456';
     log('Config — serverUrl:', serverUrl);
 
-    const boardId = getBoardId();
-    if (!boardId) {
+    currentBoardId = getBoardId();
+    if (!currentBoardId) {
       warn('Could not extract board ID from URL');
       return;
     }
-    log('Board ID:', boardId);
+    log('Board ID:', currentBoardId);
 
-    const stored = await chrome.storage.local.get([`boardConfig_${boardId}`]);
-    boardConfig = stored[`boardConfig_${boardId}`] || null;
+    const stored = await chrome.storage.local.get([`boardConfig_${currentBoardId}`]);
+    boardConfig = stored[`boardConfig_${currentBoardId}`] || null;
 
     if (!boardConfig) {
       log('No board config found — showing setup modal');
-      BoardConfig.show(boardId, (config) => {
+      BoardConfig.show(currentBoardId, (config) => {
         boardConfig = config;
         startScanning();
       });
@@ -95,53 +99,63 @@
   }
 
   async function scanCards() {
-    const cards = findCards();
-    log(`Found ${cards.size} card candidates`);
+    if (!cachedSprintIssues) {
+      cachedSprintIssues = await fetchSprintIssues();
+    }
+    if (!cachedSprintIssues) {
+      log('No sprint issues found');
+      return;
+    }
+    log(`Scanning ${cachedSprintIssues.length} sprint issues`);
 
+    const triggerLabel = boardConfig?.triggerLabel;
     let injected = 0;
-    for (const card of cards) {
-      if (card.querySelector(`[${BADGE_ATTR}]`)) continue;
-      const key = extractIssueKey(card);
-      if (!key) continue;
+    for (const issue of cachedSprintIssues) {
+      const key = issue.key;
+      if (triggerLabel && !issue.labels.includes(triggerLabel)) continue;
       if (document.querySelector(`[${BADGE_ATTR}="${key}"]`)) continue;
-      injectBadge(card, key);
+      const titleEl = findIssueTitleElement(key);
+      if (!titleEl) continue;
+      injectBadge(titleEl, key);
       injected++;
     }
     log(`Injected ${injected} badges`);
   }
 
-  function findCards() {
-    const strategies = [
-      '[data-testid*="software-board.board"] [data-testid*="card"]',
-      '[data-rbd-draggable-id]',
-      '[role="listitem"]',
-      '[data-testid*="platform-board-kit.ui.card"]',
-      '[data-testid*="software-board.card"]',
-    ];
+  async function fetchSprintIssues() {
+    try {
+      const sprintRes = await fetch(
+        `${location.origin}/rest/agile/1.0/board/${currentBoardId}/sprint?state=active`,
+        { credentials: 'include' }
+      );
+      if (!sprintRes.ok) { warn('Failed to fetch active sprint:', sprintRes.status); return null; }
+      const sprintData = await sprintRes.json();
+      const sprint = sprintData.values?.[0];
+      if (!sprint) { warn('No active sprint found'); return null; }
+      log('Active sprint:', sprint.name);
 
-    const cards = new Set();
-    for (const selector of strategies) {
-      for (const el of document.querySelectorAll(selector)) {
-        cards.add(el);
+      const issueRes = await fetch(
+        `${location.origin}/rest/agile/1.0/sprint/${sprint.id}/issue?fields=summary,labels&maxResults=200`,
+        { credentials: 'include' }
+      );
+      if (!issueRes.ok) { warn('Failed to fetch sprint issues:', issueRes.status); return null; }
+      const issueData = await issueRes.json();
+      return (issueData.issues || []).map(i => ({ key: i.key, summary: i.fields.summary, labels: i.fields.labels || [] }));
+    } catch (err) {
+      warn('fetchSprintIssues error:', err);
+      return null;
+    }
+  }
+
+  function findIssueTitleElement(issueKey) {
+    for (const el of document.querySelectorAll('div, a, span')) {
+      if (el.childElementCount === 0 && el.textContent.trim() === issueKey) {
+        log(`findIssueTitleElement: found key element for ${issueKey}`);
+        return el;
       }
     }
-
-    if (cards.size === 0) {
-      // Fallback: find issue key links and walk up to card container
-      for (const link of document.querySelectorAll('a[href*="/browse/"]')) {
-        let container = link.parentElement;
-        for (let i = 0; i < 8 && container; i++) {
-          if (container.getAttribute('draggable') === 'true' ||
-              container.getAttribute('data-rbd-draggable-id') ||
-              container.getAttribute('role') === 'listitem') {
-            cards.add(container);
-            break;
-          }
-          container = container.parentElement;
-        }
-      }
-    }
-    return cards;
+    log(`findIssueTitleElement: no element found for ${issueKey}`);
+    return null;
   }
 
   /**
@@ -298,46 +312,7 @@
     return '';
   }
 
-  function extractIssueKey(card) {
-    const keyPattern = /\b[A-Z][A-Z0-9]+-\d+\b/;
-
-    for (const attr of ['data-rbd-draggable-id', 'data-testid', 'id']) {
-      const val = card.getAttribute(attr) || '';
-      const match = val.match(keyPattern);
-      if (match) return match[0];
-    }
-
-    for (const link of card.querySelectorAll('a[href*="/browse/"]')) {
-      const href = link.getAttribute('href') || '';
-      const match = href.match(keyPattern);
-      if (match) return match[0];
-    }
-
-    for (const link of card.querySelectorAll('a')) {
-      const match = link.textContent?.match(keyPattern);
-      if (match) return match[0];
-    }
-
-    const textMatch = card.textContent?.match(keyPattern);
-    return textMatch ? textMatch[0] : null;
-  }
-
-  /**
-   * Find the card's summary/title element so we can place the icon next to it.
-   */
-  function findCardTitle(card) {
-    for (const sel of ['[data-testid*="summary"]', '[data-testid*="card.summary"]', '[data-testid*="card-title"]']) {
-      const el = card.querySelector(sel);
-      if (el) return el;
-    }
-    // Fallback: first text-only element that isn't the issue key
-    for (const el of card.querySelectorAll('span, a, p')) {
-      if (el.children.length === 0 && el.textContent.trim().length > 1) return el;
-    }
-    return null;
-  }
-
-  function injectBadge(card, issueKey) {
+  function injectBadge(titleEl, issueKey) {
     const icon = document.createElement('span');
     icon.setAttribute(BADGE_ATTR, issueKey);
     icon.className = 'jiranimo-icon idle';
@@ -355,26 +330,50 @@
       handleBadgeClick(icon, issueKey);
     });
 
-    const titleEl = findCardTitle(card);
-    if (titleEl) {
-      titleEl.parentElement.insertBefore(icon, titleEl);
-    } else {
-      card.prepend(icon);
-    }
+    const wrapper = document.createElement('span');
+    wrapper.style.cssText = 'display: inline-flex; align-items: center; flex-direction: row; direction: ltr;';
+    titleEl.parentNode.insertBefore(wrapper, titleEl);
+    wrapper.appendChild(titleEl);
+    wrapper.appendChild(icon);
     log(`Icon injected for ${issueKey}`);
+  }
+
+  function setBadgeState(icon, issueKey, status, titleOverride) {
+    updateBadgeState(icon, issueKey, status);
+    if (titleOverride) icon.title = titleOverride;
+  }
+
+  /** Proxy server API calls through the background service worker to avoid
+   *  Chrome's Private Network Access block (atlassian.net → localhost).
+   * @param {string} path
+   * @param {string} [method]
+   * @param {unknown} [body]
+   */
+  function serverFetch(path, method, body) {
+    return new Promise((resolve, reject) => {
+      // @ts-ignore — chrome global is declared at top of file
+      chrome.runtime.sendMessage(
+        { type: 'server-fetch', path, method: method || 'GET', body },
+        // @ts-ignore
+        (response) => {
+          // @ts-ignore
+          if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
+          if (!response) { reject(new Error('No response from background')); return; }
+          resolve(response);
+        }
+      );
+    });
   }
 
   async function handleBadgeClick(icon, issueKey) {
     const status = taskStatuses[issueKey];
 
     if (status === 'failed') {
-      icon.className = 'jiranimo-icon sending';
-      icon.title = 'Retrying...';
+      setBadgeState(icon, issueKey, 'in-progress', 'Retrying...');
       try {
-        await fetch(`${serverUrl}/api/tasks/${issueKey}/retry`, { method: 'POST' });
+        await serverFetch(`/api/tasks/${issueKey}/retry`, 'POST');
       } catch (err) {
-        icon.className = 'jiranimo-icon failed';
-        icon.title = 'Error — click to retry';
+        setBadgeState(icon, issueKey, 'failed', 'Error — click to retry');
       }
       return;
     }
@@ -386,27 +385,20 @@
       return;
     }
 
-    icon.className = 'jiranimo-icon sending';
-    icon.title = 'Sending to server...';
+    setBadgeState(icon, issueKey, 'in-progress', 'Sending to server...');
 
     try {
       const issueData = await fetchIssueDetails(issueKey);
       if (!issueData) {
-        icon.className = 'jiranimo-icon failed';
-        icon.title = 'Failed to fetch issue';
-        setTimeout(() => { icon.className = 'jiranimo-icon idle'; icon.title = 'Implement with AI'; }, 3000);
+        setBadgeState(icon, issueKey, 'failed', 'Failed to fetch issue — click to retry');
         return;
       }
 
-      const res = await fetch(`${serverUrl}/api/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(issueData),
-      });
+      /** @type {any} */
+      const result = await serverFetch('/api/tasks', 'POST', issueData);
 
-      if (res.ok) {
-        icon.className = 'jiranimo-icon queued';
-        icon.title = 'Queued';
+      if (result.ok) {
+        updateBadgeState(icon, issueKey, 'queued');
         taskStatuses[issueKey] = 'queued';
         persistStatuses();
 
@@ -414,39 +406,41 @@
           transitionIssue(issueKey, boardConfig.transitions.inProgress.name);
         }
       } else {
-        const err = await res.json().catch(() => ({}));
-        icon.className = 'jiranimo-icon failed';
-        icon.title = err.error || `Error ${res.status}`;
-        setTimeout(() => { icon.className = 'jiranimo-icon idle'; icon.title = 'Implement with AI'; }, 3000);
+        setBadgeState(icon, issueKey, 'failed', (result.data?.error || `Error ${result.status}`) + ' — click to retry');
       }
     } catch (err) {
-      log('Implement failed:', err);
-      icon.className = 'jiranimo-icon idle';
-      icon.title = 'Implement with AI';
+      warn('Implement failed (is the server running?):', err);
+      setBadgeState(icon, issueKey, 'failed', 'Server offline — click to retry');
     }
   }
 
   function updateBadgeState(icon, issueKey, status) {
+    const label = icon.querySelector('.jiranimo-label');
     switch (status) {
       case 'queued':
         icon.className = 'jiranimo-icon queued';
         icon.title = 'Queued';
+        if (label) label.textContent = 'Queued';
         break;
       case 'in-progress':
         icon.className = 'jiranimo-icon in-progress';
         icon.title = 'Running...';
+        if (label) label.textContent = 'Running...';
         break;
       case 'completed':
         icon.className = 'jiranimo-icon completed';
         icon.title = 'PR ready — click to open';
+        if (label) label.textContent = 'Done';
         break;
       case 'failed':
         icon.className = 'jiranimo-icon failed';
         icon.title = 'Failed — click to retry';
+        if (label) label.textContent = 'Failed';
         break;
       default:
         icon.className = 'jiranimo-icon idle';
         icon.title = 'Implement with AI';
+        if (label) label.textContent = 'Implement';
     }
   }
 
@@ -463,9 +457,10 @@
 
   async function syncTaskStatuses() {
     try {
-      const res = await fetch(`${serverUrl}/api/tasks`);
-      if (!res.ok) return;
-      const tasks = await res.json();
+      /** @type {any} */
+      const syncResult = await serverFetch('/api/tasks');
+      if (!syncResult.ok) return;
+      const tasks = syncResult.data;
 
       // Collect completed/failed task keys to check against Jira
       const toCheck = tasks.filter(t => t.status === 'completed' || t.status === 'failed');
@@ -491,7 +486,7 @@
                 resetKeys.add(issue.key);
                 delete taskStatuses[issue.key];
                 delete taskPrUrls[issue.key];
-                fetch(`${serverUrl}/api/tasks/${issue.key}`, { method: 'DELETE' }).catch(() => {});
+                serverFetch(`/api/tasks/${issue.key}`, 'DELETE').catch(() => {});
               }
             }
           }

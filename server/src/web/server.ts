@@ -12,10 +12,13 @@ export function createApp(store: StateStore, pipeline: PipelineManager) {
   const app = express();
 
   // CORS — allow requests from Jira and any origin (local tool, not public)
+  // Access-Control-Allow-Private-Network is required by Chrome's Private Network
+  // Access policy when a public origin (e.g. atlassian.net) fetches localhost.
   app.use((_req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
+    res.header('Access-Control-Allow-Private-Network', 'true');
     if (_req.method === 'OPTIONS') { res.sendStatus(204); return; }
     next();
   });

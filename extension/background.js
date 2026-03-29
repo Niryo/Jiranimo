@@ -61,3 +61,23 @@ function connectForAutoReload() {
 }
 
 connectForAutoReload();
+
+// Proxy Jiranimo server API calls from content scripts.
+// Content scripts run in the page's origin (atlassian.net), which Chrome's
+// Private Network Access policy blocks from fetching localhost directly.
+// The background service worker has extension origin and can access localhost freely.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'server-fetch') {
+    fetch(serverUrl + msg.path, {
+      method: msg.method || 'GET',
+      headers: msg.body ? { 'Content-Type': 'application/json' } : undefined,
+      body: msg.body ? JSON.stringify(msg.body) : undefined,
+    })
+      .then(async res => {
+        const data = await res.json().catch(() => ({}));
+        sendResponse({ ok: res.ok, status: res.status, data });
+      })
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true; // keep channel open for async response
+  }
+});
