@@ -51,6 +51,15 @@ export function createMcpHandler(pipeline: PipelineManager) {
       },
     );
 
+    server.tool(
+      'jiranimo_screenshot_failed',
+      { task_key: z.string(), reason: z.string() },
+      async ({ task_key, reason }) => {
+        pipeline.reportScreenshotFailed(task_key, reason);
+        return { content: [{ type: 'text' as const, text: 'Screenshot failure recorded' }] };
+      },
+    );
+
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body as Record<string, unknown>);

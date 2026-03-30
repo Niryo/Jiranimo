@@ -1,5 +1,5 @@
 export type TaskStatus = 'queued' | 'in-progress' | 'completed' | 'failed';
-export type TaskMode = 'plan' | 'implement';
+export type TaskMode = 'plan' | 'implement' | 'screenshot';
 
 export interface TaskRecord {
   key: string;
@@ -29,6 +29,8 @@ export interface TaskRecord {
   planContent?: string;
   errorMessage?: string;
   logPath?: string;
+  screenshotFailed?: boolean;
+  screenshotFailReason?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;

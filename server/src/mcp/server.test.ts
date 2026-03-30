@@ -70,6 +70,12 @@ describe('createMcpHandler tool callbacks', () => {
     expect(pipeline.reportProgress).toHaveBeenCalledWith('PROJ-1', 'Working on tests...');
   });
 
+  it('reportScreenshotFailed calls pipeline.reportScreenshotFailed', () => {
+    const pipeline = { reportScreenshotFailed: vi.fn() };
+    pipeline.reportScreenshotFailed('PROJ-1', 'dev server failed to start');
+    expect(pipeline.reportScreenshotFailed).toHaveBeenCalledWith('PROJ-1', 'dev server failed to start');
+  });
+
   it('reportPr calls pipeline.reportPr with correct args', () => {
     const pipeline = {
       reportProgress: vi.fn(),

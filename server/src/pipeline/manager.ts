@@ -32,6 +32,14 @@ export class PipelineManager extends EventEmitter {
       throw new Error(`Task ${input.key} is already ${existing.status}`);
     }
 
+    // Detect screenshot retry: previous run completed but screenshot failed,
+    // and the new submission has a reply containing "screenshot" instructions.
+    const isScreenshotRetry =
+      existing?.status === 'completed' &&
+      existing.screenshotFailed === true &&
+      existing.prUrl !== undefined &&
+      (input.comments ?? []).some(c => /screenshot/i.test(c.body));
+
     const task: TaskRecord = {
       key: input.key,
       summary: input.summary,
@@ -50,6 +58,13 @@ export class PipelineManager extends EventEmitter {
       parentKey: input.parentKey,
       jiraUrl: input.jiraUrl,
       status: 'queued',
+      // Screenshot retry: pre-set mode and inherit PR info so the prompt has it
+      ...(isScreenshotRetry && {
+        taskMode: 'screenshot' as const,
+        prUrl: existing!.prUrl,
+        prNumber: existing!.prNumber,
+        branchName: existing!.branchName,
+      }),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -85,6 +100,13 @@ export class PipelineManager extends EventEmitter {
     const current = this.store.getTask(key);
     if (!current) return;
     this.store.updateTaskStatus(key, current.status, { prUrl, prNumber, branchName });
+    this.store.flushSync();
+  }
+
+  reportScreenshotFailed(key: string, reason: string): void {
+    const current = this.store.getTask(key);
+    if (!current) return;
+    this.store.updateTaskStatus(key, current.status, { screenshotFailed: true, screenshotFailReason: reason });
     this.store.flushSync();
   }
 
@@ -153,7 +175,10 @@ export class PipelineManager extends EventEmitter {
         this.config.repoName
           ? Promise.resolve(join(this.config.reposRoot, this.config.repoName))
           : pickRepo(this.config.reposRoot, task),
-        classifyTask(task),
+        // Skip classifier if mode already determined (e.g. screenshot retry)
+        task.taskMode != null
+          ? Promise.resolve(task.taskMode)
+          : classifyTask(task),
       ]);
       console.log(`[PIPELINE] Selected repo: ${repoPath}`);
       console.log(`[PIPELINE] Task mode: ${taskMode}`);
@@ -165,7 +190,10 @@ export class PipelineManager extends EventEmitter {
       writeMcpConfig(workDir, this.config.web.port);
 
       // 3. Build prompt with all task context + git/MCP instructions
-      const prompt = buildPrompt({ ...task, comments: task.comments ?? [] }, this.config, repoPath, taskMode);
+      const screenshotContext = taskMode === 'screenshot' && task.prUrl && task.branchName
+        ? { prUrl: task.prUrl, prNumber: task.prNumber!, branchName: task.branchName }
+        : undefined;
+      const prompt = buildPrompt({ ...task, comments: task.comments ?? [] }, this.config, repoPath, taskMode, screenshotContext);
       console.log(`[PIPELINE] Prompt built (${prompt.length} chars)`);
       console.log(`[PIPELINE] Spawning Claude Code...`);
       console.log(`${'─'.repeat(60)}`);

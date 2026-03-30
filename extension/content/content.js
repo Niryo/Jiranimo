@@ -293,6 +293,16 @@
       parts.push(`Cost: $${task.claudeCostUsd.toFixed(2)}`);
     }
 
+    if (task.screenshotFailed) {
+      const reason = task.screenshotFailReason ? ` Reason: ${task.screenshotFailReason}` : '';
+      parts.push(
+        `⚠️ I wasn't able to take a screenshot of the feature.${reason}\n\n` +
+        `To add one: reply to this comment with instructions on how to screenshot this feature ` +
+        `(e.g. which URL to visit, how to start the dev server, what to click), ` +
+        `then click the AI button on this card again.`
+      );
+    }
+
     if (parts.length === 0) {
       parts.push('Done');
     }

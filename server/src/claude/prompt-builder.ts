@@ -4,10 +4,70 @@ import type { TaskMode } from '../state/types.js';
 
 export const planFilePath = (key: string) => `/tmp/jiranimo-${key}-plan.md`;
 
-export function buildPrompt(task: TaskInput, config: ServerConfig, repoPath: string, mode: TaskMode = 'implement'): string {
+interface ScreenshotContext {
+  prUrl: string;
+  prNumber: number;
+  branchName: string;
+}
+
+export function buildPrompt(
+  task: TaskInput,
+  config: ServerConfig,
+  repoPath: string,
+  mode: TaskMode = 'implement',
+  screenshotContext?: ScreenshotContext,
+): string {
   const { branchPrefix, defaultBaseBranch, pushRemote, createDraftPr } = config.git;
   const taskJson = JSON.stringify(task, null, 2);
   const appendSection = config.claude.appendSystemPrompt ? `\n\n${config.claude.appendSystemPrompt}` : '';
+
+  if (mode === 'screenshot' && screenshotContext) {
+    const { prUrl, prNumber, branchName } = screenshotContext;
+    return `You are adding a screenshot to a completed PR. The implementation is already done — do not change any code.
+
+## Task
+\`\`\`json
+${taskJson}
+\`\`\`
+
+### Context
+- Branch: \`${branchName}\`
+- PR: ${prUrl}
+
+The Jira comments in the task above contain instructions on how to screenshot this feature. Read the most recent comment that mentions "screenshot" and follow those instructions exactly.
+
+**Step 1 - Check out the branch** (read-only, no new commits needed):
+\`\`\`
+git -C ${repoPath} worktree add /tmp/jiranimo-${task.key} ${branchName}
+cd /tmp/jiranimo-${task.key}
+\`\`\`
+
+**Step 2 - Take the screenshot** following the instructions in the Jira comments.
+- Save the screenshot to \`/tmp/jiranimo-${task.key}-screenshot.png\`
+- Do NOT create a fake page — use the real running application
+- Do not use GUI app launchers (\`open\`, \`osascript\`, \`xdg-open\`)
+
+**Step 3 - Upload and add to the PR**:
+\`\`\`bash
+# Parse owner/repo from: git remote get-url origin
+SCREENSHOT_URL=$(gh api \\
+  --method POST \\
+  -H "Content-Type: image/png" \\
+  --input /tmp/jiranimo-${task.key}-screenshot.png \\
+  /repos/{owner}/{repo}/issues/assets \\
+  --jq '.href')
+gh pr comment ${prNumber} --body "![Screenshot](\${SCREENSHOT_URL})"
+\`\`\`
+
+**Step 4 - Report back**:
+- \`jiranimo_complete\` — once the screenshot is posted (task_key="${task.key}")
+- \`jiranimo_fail\` — only if you truly cannot take the screenshot (task_key="${task.key}")
+
+**Clean up the worktree**:
+\`\`\`
+git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
+\`\`\`${appendSection}`;
+  }
 
   if (mode === 'plan') {
     return `You are creating a technical plan for a Jira task. Explore the repository to understand the codebase, then write a structured plan. Do NOT write any code or commit anything.
@@ -72,18 +132,19 @@ git push -u ${pushRemote} <branch-name>
 Use conventional commit types: \`feat\` for features, \`fix\` for bugs, \`chore\` for other work.
 
 **Step 4 — Screenshot (frontend tasks only)**
-If your implementation touches any UI files (HTML, CSS, frontend JS, browser extension files), take a screenshot to prove the feature works:
-1. Use the \`browser_screenshot\` tool from the \`playwright\` MCP server.
-   - Open the relevant HTML via a \`file://\` URL, or a running local dev server.
-   - Navigate to the view that best demonstrates your change.
-   - Save the screenshot to \`/tmp/jiranimo-${task.key}-screenshot.png\`.
-2. Parse the repo owner/repo from the remote URL:
-   \`\`\`bash
-   git remote get-url origin
-   # e.g. https://github.com/owner/repo.git  →  owner/repo
-   # e.g. git@github.com:owner/repo.git      →  owner/repo
-   \`\`\`
-3. Upload the screenshot directly to GitHub (no git commit required):
+If your implementation touches any UI files (HTML, CSS, frontend JS, browser extension files), attach a screenshot of the real, working feature to the PR.
+
+**How to get the screenshot — try in this order:**
+1. **Run existing tests that produce screenshots.** Look at the project's E2E or integration tests. If there are tests that exercise the UI you changed and they save screenshots to disk, run those tests. Use the resulting screenshot file — this is the most authentic evidence a developer would provide.
+2. **Start the dev server and capture it.** If there are no relevant test screenshots, start the app with its standard dev command (check \`package.json\` scripts), wait for it to be ready, then use Playwright's \`browser_screenshot\` MCP tool or \`npx playwright screenshot <url> <file>\` to capture the running feature.
+
+**Rules:**
+- Screenshot the REAL running feature. Do NOT create a fake or demo HTML page.
+- Do not use GUI app launchers (\`open\`, \`osascript\`, \`xdg-open\`) — they require a display and will not work.
+
+**Upload and embed in the PR:**
+1. Parse owner/repo: \`git remote get-url origin\`
+2. Upload:
    \`\`\`bash
    SCREENSHOT_URL=$(gh api \\
      --method POST \\
@@ -92,7 +153,9 @@ If your implementation touches any UI files (HTML, CSS, frontend JS, browser ext
      /repos/{owner}/{repo}/issues/assets \\
      --jq '.href')
    \`\`\`
-4. Include it in the PR body: \`![Screenshot](\${SCREENSHOT_URL})\`
+3. Include in PR body: \`![Screenshot](\${SCREENSHOT_URL})\`
+
+If you cannot take a screenshot after trying all reasonable approaches, call \`jiranimo_screenshot_failed\` with a \`reason\` describing what you tried. The PR should still be created.
 
 If your changes are server-only, skip this step.
 ${createDraftPr ? `

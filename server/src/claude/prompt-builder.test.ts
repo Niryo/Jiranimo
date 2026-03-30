@@ -114,6 +114,18 @@ describe('buildPrompt', () => {
     const prompt = buildPrompt(baseTask, baseConfig, repoPath);
     expect(prompt).toContain('browser_screenshot');
     expect(prompt).toContain('issues/assets');
+    expect(prompt).toContain('Do NOT create a fake');
+    expect(prompt).toContain('jiranimo_screenshot_failed');
+  });
+
+  it('generates screenshot mode prompt when mode is screenshot', () => {
+    const ctx = { prUrl: 'https://github.com/org/repo/pull/42', prNumber: 42, branchName: 'jiranimo/PROJ-123-feature' };
+    const prompt = buildPrompt(baseTask, baseConfig, repoPath, 'screenshot', ctx);
+    expect(prompt).toContain('screenshot');
+    expect(prompt).toContain('https://github.com/org/repo/pull/42');
+    expect(prompt).toContain('jiranimo/PROJ-123-feature');
+    expect(prompt).toContain('gh pr comment 42');
+    expect(prompt).not.toContain('gh pr create');
   });
 
   it('appends appendSystemPrompt when set', () => {
