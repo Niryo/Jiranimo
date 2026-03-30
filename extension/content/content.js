@@ -6,7 +6,7 @@
  */
 
 // @ts-check
-/* global chrome, BoardConfig */
+/* global chrome, BoardConfig, AboutOverlay */
 
 (function () {
   'use strict';
@@ -54,6 +54,8 @@
 
   async function init() {
     log('Content script loaded on', location.href);
+
+    AboutOverlay.registerShortcut();
 
     const settings = await chrome.storage.local.get(['serverUrl']);
     serverUrl = settings.serverUrl || 'http://localhost:3456';

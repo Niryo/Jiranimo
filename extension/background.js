@@ -67,6 +67,12 @@ connectForAutoReload();
 // Private Network Access policy blocks from fetching localhost directly.
 // The background service worker has extension origin and can access localhost freely.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'open-options') {
+    chrome.runtime.openOptionsPage();
+    sendResponse({});
+    return;
+  }
+
   if (msg.type === 'server-fetch') {
     fetch(serverUrl + msg.path, {
       method: msg.method || 'GET',
