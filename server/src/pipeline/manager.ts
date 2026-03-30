@@ -150,7 +150,9 @@ export class PipelineManager extends EventEmitter {
     try {
       // 1. Discover repo and classify task mode in parallel
       const [repoPath, taskMode] = await Promise.all([
-        pickRepo(this.config.reposRoot, task),
+        this.config.repoName
+          ? Promise.resolve(join(this.config.reposRoot, this.config.repoName))
+          : pickRepo(this.config.reposRoot, task),
         classifyTask(task),
       ]);
       console.log(`[PIPELINE] Selected repo: ${repoPath}`);
