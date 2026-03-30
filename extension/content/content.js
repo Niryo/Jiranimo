@@ -52,8 +52,64 @@
   /** @type {Array<{key: string, summary: string, labels: string[]}>|null} */
   let cachedSprintIssues = null;
 
+  function showAboutOverlay() {
+    if (document.querySelector('.jiranimo-about-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'jiranimo-about-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'jiranimo-about-modal';
+    modal.innerHTML = `
+      <button class="jiranimo-about-close" title="Close (Esc)">&#x2715;</button>
+      <div class="jiranimo-about-modal-header">
+        ${SPARKLES_SVG}
+        <div>
+          <h2>Jiranimo</h2>
+          <div class="jiranimo-about-version">v1.0.0</div>
+        </div>
+      </div>
+      <p>Implement Jira tasks automatically with Claude Code. Click the ✦ badge on any card to send it to your local AI agent.</p>
+      <div class="jiranimo-about-modal-section">
+        <h3>Keyboard Shortcuts</h3>
+        <div class="jiranimo-about-shortcut-row">
+          <span>Show this page</span>
+          <span class="jiranimo-about-kbd"><kbd>⌘</kbd><kbd>E</kbd></span>
+        </div>
+        <div class="jiranimo-about-shortcut-row">
+          <span>Close overlay</span>
+          <span class="jiranimo-about-kbd"><kbd>Esc</kbd></span>
+        </div>
+      </div>
+      <div class="jiranimo-about-modal-section">
+        <h3>How It Works</h3>
+        <p style="margin-bottom:0">Click the sparkles icon (✦) on a Jira card to queue it for AI implementation. Jiranimo sends the issue to your local Claude Code agent, which writes the code, creates a PR, and updates the card automatically.</p>
+      </div>
+    `;
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+
+    modal.querySelector('.jiranimo-about-close').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+    };
+    document.addEventListener('keydown', onKey);
+  }
+
   async function init() {
     log('Content script loaded on', location.href);
+
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+        e.preventDefault();
+        showAboutOverlay();
+      }
+    });
 
     const settings = await chrome.storage.local.get(['serverUrl']);
     serverUrl = settings.serverUrl || 'http://localhost:3456';
