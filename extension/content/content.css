@@ -61,6 +61,120 @@
   100% { transform: scale(1)   rotate(360deg); opacity: 1; }
 }
 
+.jiranimo-about-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(9, 30, 66, 0.54);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: jiranimo-fade-in 0.15s ease;
+}
+
+@keyframes jiranimo-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.jiranimo-about-modal {
+  background: #fff;
+  border-radius: 8px;
+  padding: 32px;
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  color: #172b4d;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  position: relative;
+}
+
+.jiranimo-about-modal .jiranimo-about-close {
+  position: absolute;
+  top: 12px; right: 14px;
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #6b778c;
+  line-height: 1;
+  padding: 0;
+}
+
+.jiranimo-about-modal .jiranimo-about-close:hover {
+  color: #172b4d;
+}
+
+.jiranimo-about-modal .jiranimo-about-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.jiranimo-about-modal .jiranimo-about-logo svg {
+  width: 32px;
+  height: 32px;
+  color: #0052cc;
+  flex-shrink: 0;
+}
+
+.jiranimo-about-modal .jiranimo-about-logo h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #172b4d;
+}
+
+.jiranimo-about-modal p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #42526e;
+}
+
+.jiranimo-about-modal .jiranimo-about-version {
+  font-size: 12px;
+  color: #6b778c;
+  margin-bottom: 16px;
+}
+
+.jiranimo-about-modal .jiranimo-about-shortcuts {
+  background: #f4f5f7;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-top: 8px;
+}
+
+.jiranimo-about-modal .jiranimo-about-shortcuts h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b778c;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.jiranimo-about-modal .jiranimo-about-shortcut-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #172b4d;
+  padding: 3px 0;
+}
+
+.jiranimo-about-modal kbd {
+  background: #fff;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: monospace;
+  color: #172b4d;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
 .jiranimo-config-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
