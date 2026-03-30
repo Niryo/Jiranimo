@@ -66,7 +66,7 @@ export class OutputParser extends EventEmitter {
 
     if (type === 'result') {
       const subtype = raw.subtype as string | undefined;
-      const isError = subtype === 'error_max_turns' || subtype === 'error';
+      const isError = (subtype ?? '').startsWith('error');
       const resultText = raw.result as string | undefined;
       const costUsd = (raw.total_cost_usd ?? raw.cost_usd) as number | undefined;
       const sessionId = raw.session_id as string | undefined;

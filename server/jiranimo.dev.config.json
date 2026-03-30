@@ -1,5 +1,4 @@
 {
   "reposRoot": "../gitPlaygrounds",
-  "claude": { "maxBudgetUsd": 0.50 },
   "web": { "port": 3456 }
 }

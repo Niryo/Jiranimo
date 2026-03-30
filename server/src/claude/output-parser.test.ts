@@ -78,6 +78,19 @@ describe('OutputParser', () => {
     expect(events[0].isError).toBe(true);
   });
 
+  it('parses error_max_budget_usd as error', () => {
+    const parser = new OutputParser();
+    const events = collectEvents(parser);
+
+    parser.feed(JSON.stringify({
+      type: 'result',
+      subtype: 'error_max_budget_usd',
+      result: 'Budget exceeded',
+    }) + '\n');
+
+    expect(events[0].isError).toBe(true);
+  });
+
   it('emits result event separately', () => {
     const parser = new OutputParser();
     const resultHandler = vi.fn();
