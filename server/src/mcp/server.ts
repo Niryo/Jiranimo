@@ -68,6 +68,11 @@ export function writeMcpConfig(dir: string, port: number): void {
         type: 'http',
         url: `http://127.0.0.1:${port}/mcp`,
       },
+      playwright: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['@playwright/mcp@latest', '--headless'],
+      },
     },
   };
   writeFileSync(join(dir, '.mcp.json'), JSON.stringify(config, null, 2));

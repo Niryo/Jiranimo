@@ -110,6 +110,12 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('"description": ""');
   });
 
+  it('includes screenshot and GitHub upload instructions', () => {
+    const prompt = buildPrompt(baseTask, baseConfig, repoPath);
+    expect(prompt).toContain('browser_screenshot');
+    expect(prompt).toContain('issues/assets');
+  });
+
   it('appends appendSystemPrompt when set', () => {
     const config = { ...baseConfig, claude: { ...baseConfig.claude, appendSystemPrompt: 'Focus on performance.' } };
     const prompt = buildPrompt(baseTask, config, repoPath);

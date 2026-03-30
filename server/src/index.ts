@@ -23,7 +23,7 @@ async function main() {
     config = loadConfig({ configPath: devConfigPath });
     // Self mode: point reposRoot at the parent directory (contains the Jiranimo repo itself)
     if (SELF_MODE) {
-      config = { ...config, reposRoot: resolve(process.cwd(), '..') };
+      config = { ...config, reposRoot: resolve(process.cwd(), '../..') };
     } else if (!isAbsolute(config.reposRoot)) {
       // Resolve relative reposRoot against cwd
       config = { ...config, reposRoot: resolve(process.cwd(), config.reposRoot) };

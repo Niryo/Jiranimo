@@ -27,6 +27,16 @@ describe('writeMcpConfig', () => {
     };
     expect(content.mcpServers.jiranimo.url).toContain('8080');
   });
+
+  it('includes playwright MCP server in config', () => {
+    writeMcpConfig(tmpDir, 3456);
+    const content = JSON.parse(readFileSync(join(tmpDir, '.mcp.json'), 'utf-8')) as {
+      mcpServers: { playwright: { type: string; command: string; args: string[] } };
+    };
+    expect(content.mcpServers.playwright.type).toBe('stdio');
+    expect(content.mcpServers.playwright.command).toBe('npx');
+    expect(content.mcpServers.playwright.args[0]).toContain('@playwright/mcp');
+  });
 });
 
 describe('deleteMcpConfig', () => {

@@ -50,7 +50,7 @@ export async function pickRepo(reposRoot: string, task: TaskSummary): Promise<st
   const repoList = repos.map(r => `- ${r.hint}`).join('\n');
   const description = task.description ? task.description.slice(0, 500) : '';
 
-  const prompt = `Given this Jira task, which repository should be modified? Respond with ONLY the repository directory name, nothing else.
+  const prompt = `Given this Jira task, which repository should be modified? Respond with ONLY the repository directory name, exactly as it appears in the list below (preserve capitalization), nothing else.
 
 Task: ${task.key} - ${task.summary}
 ${description ? `\nDescription: ${description}` : ''}

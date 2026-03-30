@@ -42,10 +42,6 @@ git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
 \`\`\`${appendSection}`;
   }
 
-  const prStep = createDraftPr
-    ? `\n**Step 6 — Create a draft PR**:\n\`\`\`\ngh pr create --draft --title "[${task.key}] ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}"\n\`\`\`\n`
-    : '';
-
   return `You are implementing a Jira task as a software engineer. You have full access to the repository and must handle all git operations yourself.
 
 ## Task
@@ -74,8 +70,38 @@ git commit -m "<type>(${task.key}): <short description>"
 git push -u ${pushRemote} <branch-name>
 \`\`\`
 Use conventional commit types: \`feat\` for features, \`fix\` for bugs, \`chore\` for other work.
-${prStep}
-**Step 4 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
+
+**Step 4 — Screenshot (frontend tasks only)**
+If your implementation touches any UI files (HTML, CSS, frontend JS, browser extension files), take a screenshot to prove the feature works:
+1. Use the \`browser_screenshot\` tool from the \`playwright\` MCP server.
+   - Open the relevant HTML via a \`file://\` URL, or a running local dev server.
+   - Navigate to the view that best demonstrates your change.
+   - Save the screenshot to \`/tmp/jiranimo-${task.key}-screenshot.png\`.
+2. Parse the repo owner/repo from the remote URL:
+   \`\`\`bash
+   git remote get-url origin
+   # e.g. https://github.com/owner/repo.git  →  owner/repo
+   # e.g. git@github.com:owner/repo.git      →  owner/repo
+   \`\`\`
+3. Upload the screenshot directly to GitHub (no git commit required):
+   \`\`\`bash
+   SCREENSHOT_URL=$(gh api \\
+     --method POST \\
+     -H "Content-Type: image/png" \\
+     --input /tmp/jiranimo-${task.key}-screenshot.png \\
+     /repos/{owner}/{repo}/issues/assets \\
+     --jq '.href')
+   \`\`\`
+4. Include it in the PR body: \`![Screenshot](\${SCREENSHOT_URL})\`
+
+If your changes are server-only, skip this step.
+${createDraftPr ? `
+**Step 5 — Create a draft PR**:
+\`\`\`
+gh pr create --draft --title "[${task.key}] ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}\\n\\n<screenshot here if taken>"
+\`\`\`
+` : ''}
+**Step 6 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
 - \`jiranimo_progress\` — send progress updates as you work (task_key="${task.key}")
 - \`jiranimo_report_pr\` — once the PR is created, report its url, number, and branch name (task_key="${task.key}")
 - \`jiranimo_complete\` — when all work is done (task_key="${task.key}")
