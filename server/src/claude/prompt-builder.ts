@@ -133,16 +133,17 @@ If your implementation touches any UI files (HTML, CSS, frontend JS, browser ext
 
 Think of yourself as a developer who just finished implementing this feature and wants to show it working. How would you demo it to a colleague? Do that — use the real app, the real dev server, the real test suite.
 
-**How to get the screenshot:**
-1. **Run existing E2E/integration tests.** Check the project's test directory for Playwright or similar tests that exercise the UI you changed. Run them — if they save screenshots to disk, copy the result to \`/tmp/jiranimo-${task.key}-screenshot.png\`.
-2. **Start the dev server and capture it.** If no test screenshots exist, start the app with its standard dev command (check \`package.json\` scripts), then use the \`browser_screenshot\` MCP tool or \`npx playwright screenshot --viewport-size "1280,720" <url> /tmp/jiranimo-${task.key}-screenshot.png\`.
+**How to get the screenshot — you MUST try both before giving up:**
+1. **Run existing E2E/integration tests.** Look in the project's test directories for Playwright or similar tests that exercise the UI you changed. Actually run them — don't assume they're broken or excluded. If they save screenshots to disk, copy the result to \`/tmp/jiranimo-${task.key}-screenshot.png\`. For browser extensions specifically, E2E tests that load the extension in a real Chromium are the correct path and likely the only one available.
+2. **Start the app and capture it.** If no E2E tests exist, start the app with its standard dev command (check \`package.json\` scripts), then use the \`browser_screenshot\` MCP tool or \`npx playwright screenshot --viewport-size "1280,720" <url> /tmp/jiranimo-${task.key}-screenshot.png\`.
 
 Ask yourself: how would a developer on this project run and view the feature they just built? Do exactly that, then take the screenshot.
 
 **Non-negotiable rules:**
 - Screenshot the REAL running feature. Never create a throwaway demo/mock HTML file just to screenshot it — that is not evidence the feature works, and it's not how a real developer would do it.
-- After taking the screenshot, ask yourself again to make sure- is this really how a developer would capture their work to show a teammate? If not, adjust your approach until it is.
-If you genuinely cannot screenshot the real app after trying all three approaches, call \`jiranimo_screenshot_failed\` with a \`reason\`.
+- Do not give up after a brief look. Actually attempt to run the tests or start the app before concluding it's impossible.
+
+Call \`jiranimo_screenshot_failed\` only if you genuinely tried both approaches and both failed — and explain exactly what commands you ran and what errors you got.
 
 If your changes are server-only, skip this step.
 
