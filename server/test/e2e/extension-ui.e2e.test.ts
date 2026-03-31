@@ -397,6 +397,33 @@ describe('Extension UI E2E', () => {
     await page.close();
   });
 
+  it('shows about overlay when cmd+e is pressed', async () => {
+    stepCounter = 0;
+    const page = await setupPage({ presetConfig: true });
+    await page.waitForSelector('[data-jiranimo]', { timeout: 5000 });
+
+    // Trigger Cmd+E keyboard shortcut
+    await page.keyboard.press('Meta+e');
+    await page.waitForSelector('.jiranimo-about-overlay', { timeout: 3000 });
+    await page.screenshot({ path: screenshotPath('about-overlay', 'overlay-open'), fullPage: true });
+
+    const titleText = await page.locator('.jiranimo-about-title').textContent();
+    expect(titleText).toContain('Jiranimo');
+
+    const descText = await page.locator('.jiranimo-about-desc').textContent();
+    expect(descText).toContain('Claude Code');
+
+    // Close with Escape
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.jiranimo-about-overlay', { state: 'hidden', timeout: 2000 });
+    await page.screenshot({ path: screenshotPath('about-overlay', 'overlay-closed'), fullPage: true });
+
+    const overlay = await page.$('.jiranimo-about-overlay');
+    expect(overlay).toBeNull();
+
+    await page.close();
+  });
+
   it('config modal shows ALL board columns including custom ones', async () => {
     // Bug: Extension only showed default columns (To Do, In Progress, Done)
     // because it fell back to hardcoded defaults when API call failed.
