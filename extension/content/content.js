@@ -601,5 +601,18 @@
     }
   }
 
+  // About overlay — Cmd+E (Mac) / Ctrl+E (Win/Linux)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'e' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      // @ts-ignore — AboutOverlay is loaded before this script
+      AboutOverlay.toggle();
+    }
+    if (e.key === 'Escape') {
+      // @ts-ignore
+      AboutOverlay.hide();
+    }
+  });
+
   init().catch(err => warn('Init failed:', err));
 })();

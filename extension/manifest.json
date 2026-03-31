@@ -16,7 +16,7 @@
       "https://*.atlassian.net/jira/software/projects/*/boards/*",
       "https://*.atlassian.net/jira/software/c/projects/*/boards/*"
     ],
-    "js": ["lib/adf-to-markdown.js", "lib/jira-api.js", "content/board-config.js", "content/content.js"],
+    "js": ["lib/adf-to-markdown.js", "lib/jira-api.js", "content/board-config.js", "content/about-overlay.js", "content/content.js"],
     "css": ["content/content.css"]
   }],
   "options_page": "options/options.html",
