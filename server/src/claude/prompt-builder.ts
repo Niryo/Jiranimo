@@ -135,7 +135,7 @@ Think of yourself as a developer who just finished implementing this feature and
 
 **How to get the screenshot:**
 1. **Run existing E2E/integration tests.** Check the project's test directory for Playwright or similar tests that exercise the UI you changed. Run them — if they save screenshots to disk, copy the result to \`/tmp/jiranimo-${task.key}-screenshot.png\`.
-2. **Start the dev server and capture it.** If no test screenshots exist, start the app with its standard dev command (check \`package.json\` scripts), then use the \`browser_screenshot\` MCP tool or \`npx playwright screenshot <url> /tmp/jiranimo-${task.key}-screenshot.png\`.
+2. **Start the dev server and capture it.** If no test screenshots exist, start the app with its standard dev command (check \`package.json\` scripts), then use the \`browser_screenshot\` MCP tool or \`npx playwright screenshot --viewport-size "1280,720" <url> /tmp/jiranimo-${task.key}-screenshot.png\`.
 
 Ask yourself: how would a developer on this project run and view the feature they just built? Do exactly that, then take the screenshot.
 
@@ -148,7 +148,14 @@ If your changes are server-only, skip this step.
 
 **Step 5 — Create a PR with the screenshot embedded in the body**:
 \`\`\`bash
-SCREENSHOT_B64=$(base64 -i /tmp/jiranimo-${task.key}-screenshot.png 2>/dev/null | tr -d '\\n' || echo "")
+# Resize screenshot to max 900px wide so the base64 fits in the PR body
+if [ -f /tmp/jiranimo-${task.key}-screenshot.png ]; then
+  sips -Z 900 /tmp/jiranimo-${task.key}-screenshot.png --out /tmp/jiranimo-${task.key}-screenshot-small.png 2>/dev/null \\
+    || cp /tmp/jiranimo-${task.key}-screenshot.png /tmp/jiranimo-${task.key}-screenshot-small.png
+  SCREENSHOT_B64=$(base64 -i /tmp/jiranimo-${task.key}-screenshot-small.png | tr -d '\\n')
+else
+  SCREENSHOT_B64=""
+fi
 gh pr create ${createDraftPr ? '--draft ' : ''}--title "[${task.key}] ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}\${SCREENSHOT_B64:+\\n\\ndata:image/png;base64,\${SCREENSHOT_B64}}"
 \`\`\`
 
