@@ -195,6 +195,7 @@ async function injectScripts(page: Page) {
   await page.addScriptTag({ url: extUrl('lib/adf-to-markdown.js') });
   await page.addScriptTag({ url: extUrl('lib/jira-api.js') });
   await page.addScriptTag({ url: extUrl('content/board-config.js') });
+  await page.addScriptTag({ url: extUrl('content/about-overlay.js') });
   await page.addScriptTag({ url: extUrl('content/content.js') });
 }
 
@@ -394,6 +395,32 @@ describe('Extension UI E2E', () => {
       expect(count, `${key} should have exactly 1 badge`).toBe(1);
     }
 
+    await page.close();
+  });
+
+  it('shows about overlay when cmd+e is pressed and hides on close', async () => {
+    stepCounter = 0;
+    const page = await setupPage({ presetConfig: true });
+    await page.waitForSelector('[data-jiranimo]', { timeout: 5000 });
+
+    // Overlay should not be visible initially
+    expect(await page.$('.jiranimo-about-overlay')).toBeNull();
+
+    // Press Cmd+E to open the about overlay
+    await page.keyboard.press('Meta+e');
+    await page.waitForSelector('.jiranimo-about-overlay', { timeout: 3000 });
+    await page.screenshot({ path: screenshotPath('about-overlay', 'overlay-open'), fullPage: true });
+
+    const modalText = await page.locator('.jiranimo-about-modal').textContent();
+    expect(modalText).toContain('Jiranimo');
+    expect(modalText).toContain('Claude Code');
+
+    // Close via the × button
+    await page.click('.jiranimo-about-close');
+    await page.waitForSelector('.jiranimo-about-overlay', { state: 'hidden', timeout: 3000 });
+    expect(await page.$('.jiranimo-about-overlay')).toBeNull();
+
+    await page.screenshot({ path: screenshotPath('about-overlay', 'overlay-closed'), fullPage: true });
     await page.close();
   });
 
