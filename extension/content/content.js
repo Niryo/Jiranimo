@@ -6,7 +6,7 @@
  */
 
 // @ts-check
-/* global chrome, BoardConfig */
+/* global chrome, BoardConfig, AboutOverlay */
 
 (function () {
   'use strict';
@@ -600,6 +600,14 @@
       postJiraComment(msg.taskKey, msg.planContent);
     }
   }
+
+  // Cmd+E (Mac) / Ctrl+E (Win/Linux) — toggle about overlay
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'e' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      AboutOverlay.toggle();
+    }
+  });
 
   init().catch(err => warn('Init failed:', err));
 })();
