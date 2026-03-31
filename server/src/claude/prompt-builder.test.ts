@@ -110,10 +110,10 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('"description": ""');
   });
 
-  it('includes screenshot and GitHub upload instructions', () => {
+  it('includes screenshot and base64 embed instructions', () => {
     const prompt = buildPrompt(baseTask, baseConfig, repoPath);
     expect(prompt).toContain('browser_screenshot');
-    expect(prompt).toContain('issues/assets');
+    expect(prompt).toContain('data:image/png;base64');
     expect(prompt).toContain('Do NOT create a fake');
     expect(prompt).toContain('jiranimo_screenshot_failed');
   });
@@ -124,7 +124,7 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('screenshot');
     expect(prompt).toContain('https://github.com/org/repo/pull/42');
     expect(prompt).toContain('jiranimo/PROJ-123-feature');
-    expect(prompt).toContain('gh pr comment 42');
+    expect(prompt).toContain('gh pr edit 42');
     expect(prompt).not.toContain('gh pr create');
   });
 

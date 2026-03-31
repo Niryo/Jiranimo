@@ -30,6 +30,11 @@ vi.mock('../mcp/server.js', () => ({
   deleteMcpConfig: vi.fn(),
 }));
 
+// Mock task classifier so it doesn't consume executor mock calls
+vi.mock('../claude/task-classifier.js', () => ({
+  classifyTask: vi.fn().mockResolvedValue('implement'),
+}));
+
 const testConfig: ServerConfig = {
   reposRoot: '/tmp/repos',
   claude: { maxBudgetUsd: 2.0 },

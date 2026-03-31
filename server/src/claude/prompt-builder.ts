@@ -47,16 +47,13 @@ cd /tmp/jiranimo-${task.key}
 - Do NOT create a fake page — use the real running application
 - Do not use GUI app launchers (\`open\`, \`osascript\`, \`xdg-open\`)
 
-**Step 3 - Upload and add to the PR**:
+**Step 3 - Embed in the PR description**:
 \`\`\`bash
-# Parse owner/repo from: git remote get-url origin
-SCREENSHOT_URL=$(gh api \\
-  --method POST \\
-  -H "Content-Type: image/png" \\
-  --input /tmp/jiranimo-${task.key}-screenshot.png \\
-  /repos/{owner}/{repo}/issues/assets \\
-  --jq '.href')
-gh pr comment ${prNumber} --body "![Screenshot](\${SCREENSHOT_URL})"
+SCREENSHOT_B64=$(base64 -i /tmp/jiranimo-${task.key}-screenshot.png | tr -d '\\n')
+CURRENT_BODY=$(gh pr view ${prNumber} --json body --jq '.body')
+gh pr edit ${prNumber} --body "\${CURRENT_BODY}
+
+data:image/png;base64,\${SCREENSHOT_B64}"
 \`\`\`
 
 **Step 4 - Report back**:
@@ -142,28 +139,16 @@ If your implementation touches any UI files (HTML, CSS, frontend JS, browser ext
 - Screenshot the REAL running feature. Do NOT create a fake or demo HTML page.
 - Do not use GUI app launchers (\`open\`, \`osascript\`, \`xdg-open\`) — they require a display and will not work.
 
-**Upload and embed in the PR:**
-1. Parse owner/repo: \`git remote get-url origin\`
-2. Upload:
-   \`\`\`bash
-   SCREENSHOT_URL=$(gh api \\
-     --method POST \\
-     -H "Content-Type: image/png" \\
-     --input /tmp/jiranimo-${task.key}-screenshot.png \\
-     /repos/{owner}/{repo}/issues/assets \\
-     --jq '.href')
-   \`\`\`
-3. Include in PR body: \`![Screenshot](\${SCREENSHOT_URL})\`
+If you cannot take a screenshot after trying all reasonable approaches, call \`jiranimo_screenshot_failed\` with a \`reason\` describing what you tried.
 
-If you cannot take a screenshot after trying all reasonable approaches, call \`jiranimo_screenshot_failed\` with a \`reason\` describing what you tried. The PR should still be created.
+If your changes are server-only, skip this step (set \`SCREENSHOT_B64\` to empty string).
 
-If your changes are server-only, skip this step.
-${createDraftPr ? `
-**Step 5 — Create a draft PR**:
+**Step 5 — Create a PR** (include screenshot in body if taken):
+\`\`\`bash
+SCREENSHOT_B64=$(base64 -i /tmp/jiranimo-${task.key}-screenshot.png 2>/dev/null | tr -d '\\n' || echo "")
+gh pr create ${createDraftPr ? '--draft ' : ''}--title "[${task.key}] ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}\${SCREENSHOT_B64:+\\n\\ndata:image/png;base64,\${SCREENSHOT_B64}}"
 \`\`\`
-gh pr create --draft --title "[${task.key}] ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}\\n\\n<screenshot here if taken>"
-\`\`\`
-` : ''}
+
 **Step 6 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
 - \`jiranimo_progress\` — send progress updates as you work (task_key="${task.key}")
 - \`jiranimo_report_pr\` — once the PR is created, report its url, number, and branch name (task_key="${task.key}")
