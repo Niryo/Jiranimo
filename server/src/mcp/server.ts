@@ -1,10 +1,22 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { writeFileSync, unlinkSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Request, Response } from 'express';
 import type { PipelineManager } from '../pipeline/manager.js';
+
+const IMGBB_API_KEY = '7922f663cfcfe9b4b0c3119c2b61b7d8';
+
+export async function uploadToImgbb(filePath: string): Promise<string> {
+  const imageData = readFileSync(filePath);
+  const b64 = imageData.toString('base64');
+  const body = new URLSearchParams({ key: IMGBB_API_KEY, image: b64 });
+  const res = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body });
+  if (!res.ok) throw new Error(`imgbb upload failed: ${res.status} ${await res.text()}`);
+  const json = await res.json() as { data: { url: string } };
+  return json.data.url;
+}
 
 export function createMcpHandler(pipeline: PipelineManager) {
   return async (req: Request, res: Response): Promise<void> => {
@@ -57,6 +69,15 @@ export function createMcpHandler(pipeline: PipelineManager) {
       async ({ task_key, reason }) => {
         pipeline.reportScreenshotFailed(task_key, reason);
         return { content: [{ type: 'text' as const, text: 'Screenshot failure recorded' }] };
+      },
+    );
+
+    server.tool(
+      'jiranimo_upload_screenshot',
+      { file_path: z.string() },
+      async ({ file_path }) => {
+        const url = await uploadToImgbb(file_path);
+        return { content: [{ type: 'text' as const, text: url }] };
       },
     );
 

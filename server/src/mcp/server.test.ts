@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { writeMcpConfig, deleteMcpConfig } from './server.js';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { writeMcpConfig, deleteMcpConfig, uploadToImgbb } from './server.js';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+
+vi.stubGlobal('fetch', vi.fn());
 
 let tmpDir: string;
 
@@ -102,5 +104,37 @@ describe('createMcpHandler tool callbacks', () => {
     const pipeline = { failViaAgent: vi.fn() };
     pipeline.failViaAgent('PROJ-1', 'Build failed');
     expect(pipeline.failViaAgent).toHaveBeenCalledWith('PROJ-1', 'Build failed');
+  });
+});
+
+describe('uploadToImgbb', () => {
+  it('posts image as base64 and returns the url', async () => {
+    const tmpFile = join(tmpdir(), 'test-screenshot.png');
+    writeFileSync(tmpFile, Buffer.from('fake-png-data'));
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: { url: 'https://i.ibb.co/abc123/screenshot.png' } }),
+    } as Response);
+
+    const url = await uploadToImgbb(tmpFile);
+
+    expect(url).toBe('https://i.ibb.co/abc123/screenshot.png');
+    expect(fetch).toHaveBeenCalledWith('https://api.imgbb.com/1/upload', expect.objectContaining({ method: 'POST' }));
+    rmSync(tmpFile, { force: true });
+  });
+
+  it('throws when imgbb returns an error status', async () => {
+    const tmpFile = join(tmpdir(), 'test-screenshot.png');
+    writeFileSync(tmpFile, Buffer.from('fake-png-data'));
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => 'Bad Request',
+    } as Response);
+
+    await expect(uploadToImgbb(tmpFile)).rejects.toThrow('imgbb upload failed: 400');
+    rmSync(tmpFile, { force: true });
   });
 });

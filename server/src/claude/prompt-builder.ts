@@ -146,25 +146,16 @@ If you genuinely cannot screenshot the real app after trying all three approache
 
 If your changes are server-only, skip this step.
 
-**Step 5 — Create a PR with the screenshot embedded in the body**:
+**Step 5 — Upload the screenshot and create a PR**:
+If a screenshot was taken, call \`jiranimo_upload_screenshot\` with \`file_path="/tmp/jiranimo-${task.key}-screenshot.png"\`. It returns a URL — use it in the PR body as \`![Screenshot](<url>)\`.
+
 \`\`\`bash
-# Resize screenshot to max 900px wide so the base64 fits in the PR body
-if [ -f /tmp/jiranimo-${task.key}-screenshot.png ]; then
-  sips -Z 900 /tmp/jiranimo-${task.key}-screenshot.png --out /tmp/jiranimo-${task.key}-screenshot-small.png 2>/dev/null \\
-    || cp /tmp/jiranimo-${task.key}-screenshot.png /tmp/jiranimo-${task.key}-screenshot-small.png
-  SCREENSHOT_B64=$(base64 -i /tmp/jiranimo-${task.key}-screenshot-small.png | tr -d '\\n')
-else
-  SCREENSHOT_B64=""
-fi
-gh pr create ${createDraftPr ? '--draft ' : ''}--title "[${task.key}] ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}\${SCREENSHOT_B64:+\\n\\ndata:image/png;base64,\${SCREENSHOT_B64}}"
+gh pr create ${createDraftPr ? '--draft ' : ''}--title "[${task.key}] ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}
+# append screenshot line here if upload succeeded: ![Screenshot](<url>)"
 \`\`\`
 
-**Step 5b — Verify the screenshot is in the PR body** (required if a screenshot was taken):
-\`\`\`bash
-gh pr view --json body --jq '.body' | grep -q "data:image/png;base64" \\
-  && echo "Screenshot verified in PR body" \\
-  || { [ -n "\$SCREENSHOT_B64" ] && echo "WARNING: screenshot missing from PR body — fixing..." && gh pr edit --body "\$(gh pr view --json body --jq '.body')\\n\\ndata:image/png;base64,\${SCREENSHOT_B64}"; }
-\`\`\`
+**Step 5b — Verify the screenshot is in the PR body** (required if a screenshot was uploaded):
+Run \`gh pr view --json body --jq '.body'\` and confirm it contains the screenshot URL. If not, run \`gh pr edit\` to add it.
 
 **Step 6 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
 - \`jiranimo_progress\` — send progress updates as you work (task_key="${task.key}")

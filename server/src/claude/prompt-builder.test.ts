@@ -110,10 +110,10 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('"description": ""');
   });
 
-  it('includes screenshot and base64 embed instructions', () => {
+  it('includes screenshot upload instructions', () => {
     const prompt = buildPrompt(baseTask, baseConfig, repoPath);
     expect(prompt).toContain('browser_screenshot');
-    expect(prompt).toContain('data:image/png;base64');
+    expect(prompt).toContain('jiranimo_upload_screenshot');
     expect(prompt).toContain('Never create a throwaway demo/mock HTML file');
     expect(prompt).toContain('jiranimo_screenshot_failed');
   });
