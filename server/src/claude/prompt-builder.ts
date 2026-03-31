@@ -129,24 +129,34 @@ git push -u ${pushRemote} <branch-name>
 Use conventional commit types: \`feat\` for features, \`fix\` for bugs, \`chore\` for other work.
 
 **Step 4 — Screenshot (frontend tasks only)**
-If your implementation touches any UI files (HTML, CSS, frontend JS, browser extension files), attach a screenshot of the real, working feature to the PR.
+If your implementation touches any UI files (HTML, CSS, frontend JS, browser extension files), take a screenshot of the real running feature.
 
-**How to get the screenshot — try in this order:**
-1. **Run existing tests that produce screenshots.** Look at the project's E2E or integration tests. If there are tests that exercise the UI you changed and they save screenshots to disk, run those tests. Use the resulting screenshot file — this is the most authentic evidence a developer would provide.
-2. **Start the dev server and capture it.** If there are no relevant test screenshots, start the app with its standard dev command (check \`package.json\` scripts), wait for it to be ready, then use Playwright's \`browser_screenshot\` MCP tool or \`npx playwright screenshot <url> <file>\` to capture the running feature.
+Think of yourself as a developer who just finished implementing this feature and wants to show it working. How would you demo it to a colleague? Do that — use the real app, the real dev server, the real test suite.
 
-**Rules:**
-- Screenshot the REAL running feature. Do NOT create a fake or demo HTML page.
-- Do not use GUI app launchers (\`open\`, \`osascript\`, \`xdg-open\`) — they require a display and will not work.
+**How to get the screenshot:**
+1. **Run existing E2E/integration tests.** Check the project's test directory for Playwright or similar tests that exercise the UI you changed. Run them — if they save screenshots to disk, copy the result to \`/tmp/jiranimo-${task.key}-screenshot.png\`.
+2. **Start the dev server and capture it.** If no test screenshots exist, start the app with its standard dev command (check \`package.json\` scripts), then use the \`browser_screenshot\` MCP tool or \`npx playwright screenshot <url> /tmp/jiranimo-${task.key}-screenshot.png\`.
 
-If you cannot take a screenshot after trying all reasonable approaches, call \`jiranimo_screenshot_failed\` with a \`reason\` describing what you tried.
+Ask yourself: how would a developer on this project run and view the feature they just built? Do exactly that, then take the screenshot.
 
-If your changes are server-only, skip this step (set \`SCREENSHOT_B64\` to empty string).
+**Non-negotiable rules:**
+- Screenshot the REAL running feature. Never create a throwaway demo/mock HTML file just to screenshot it — that is not evidence the feature works, and it's not how a real developer would do it.
+- After taking the screenshot, ask yourself again to make sure- is this really how a developer would capture their work to show a teammate? If not, adjust your approach until it is.
+If you genuinely cannot screenshot the real app after trying all three approaches, call \`jiranimo_screenshot_failed\` with a \`reason\`.
 
-**Step 5 — Create a PR** (include screenshot in body if taken):
+If your changes are server-only, skip this step.
+
+**Step 5 — Create a PR with the screenshot embedded in the body**:
 \`\`\`bash
 SCREENSHOT_B64=$(base64 -i /tmp/jiranimo-${task.key}-screenshot.png 2>/dev/null | tr -d '\\n' || echo "")
 gh pr create ${createDraftPr ? '--draft ' : ''}--title "[${task.key}] ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}\${SCREENSHOT_B64:+\\n\\ndata:image/png;base64,\${SCREENSHOT_B64}}"
+\`\`\`
+
+**Step 5b — Verify the screenshot is in the PR body** (required if a screenshot was taken):
+\`\`\`bash
+gh pr view --json body --jq '.body' | grep -q "data:image/png;base64" \\
+  && echo "Screenshot verified in PR body" \\
+  || { [ -n "\$SCREENSHOT_B64" ] && echo "WARNING: screenshot missing from PR body — fixing..." && gh pr edit --body "\$(gh pr view --json body --jq '.body')\\n\\ndata:image/png;base64,\${SCREENSHOT_B64}"; }
 \`\`\`
 
 **Step 6 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):

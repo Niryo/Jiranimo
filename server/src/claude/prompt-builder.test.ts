@@ -114,7 +114,7 @@ describe('buildPrompt', () => {
     const prompt = buildPrompt(baseTask, baseConfig, repoPath);
     expect(prompt).toContain('browser_screenshot');
     expect(prompt).toContain('data:image/png;base64');
-    expect(prompt).toContain('Do NOT create a fake');
+    expect(prompt).toContain('Never create a throwaway demo/mock HTML file');
     expect(prompt).toContain('jiranimo_screenshot_failed');
   });
 
