@@ -397,6 +397,35 @@ describe('Extension UI E2E', () => {
     await page.close();
   });
 
+  it('shows about overlay when cmd+e is pressed', async () => {
+    stepCounter = 0;
+    const page = await setupPage({ presetConfig: true });
+    await page.waitForSelector('[data-jiranimo]', { timeout: 5000 });
+
+    // No overlay initially
+    expect(await page.$('.jiranimo-about-overlay')).toBeNull();
+    await page.screenshot({ path: screenshotPath('about-overlay', 'before-shortcut'), fullPage: true });
+
+    // Press cmd+e to open about overlay
+    await page.keyboard.press('Meta+e');
+    await page.waitForSelector('.jiranimo-about-overlay', { timeout: 3000 });
+    await page.screenshot({ path: screenshotPath('about-overlay', 'overlay-shown'), fullPage: true });
+
+    const title = await page.locator('.jiranimo-about-title').textContent();
+    expect(title?.trim()).toBe('Jiranimo');
+
+    const tagline = await page.locator('.jiranimo-about-tagline').textContent();
+    expect(tagline).toContain('Claude Code');
+
+    // Press Esc to close
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.jiranimo-about-overlay', { state: 'hidden', timeout: 3000 });
+    expect(await page.$('.jiranimo-about-overlay')).toBeNull();
+    await page.screenshot({ path: screenshotPath('about-overlay', 'after-close'), fullPage: true });
+
+    await page.close();
+  });
+
   it('config modal shows ALL board columns including custom ones', async () => {
     // Bug: Extension only showed default columns (To Do, In Progress, Done)
     // because it fell back to hardcoded defaults when API call failed.
