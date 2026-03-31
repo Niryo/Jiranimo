@@ -118,3 +118,162 @@
 .jiranimo-config-modal button:hover {
   background: #0065ff;
 }
+
+/* ── About overlay ─────────────────────────────────────────────────────────── */
+
+.jiranimo-about-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(9, 30, 66, 0.54);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: jiranimo-fade-in 0.15s ease;
+}
+
+@keyframes jiranimo-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.jiranimo-about-modal {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  width: 440px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  color: #172b4d;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  animation: jiranimo-slide-up 0.15s ease;
+}
+
+@keyframes jiranimo-slide-up {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+.jiranimo-about-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.jiranimo-about-logo {
+  color: #0052cc;
+  display: flex;
+  align-items: center;
+  font-size: 22px;
+}
+
+.jiranimo-about-logo svg {
+  width: 1em;
+  height: 1em;
+}
+
+.jiranimo-about-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #172b4d;
+  flex: 1;
+}
+
+.jiranimo-about-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #6b778c;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.jiranimo-about-close:hover {
+  color: #172b4d;
+}
+
+.jiranimo-about-tagline {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: #6b778c;
+}
+
+.jiranimo-about-section {
+  margin-bottom: 16px;
+}
+
+.jiranimo-about-section h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b778c;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.jiranimo-about-section ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.jiranimo-about-section li {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #172b4d;
+  margin-bottom: 4px;
+}
+
+.jiranimo-about-sparkle {
+  display: inline-flex;
+  vertical-align: middle;
+  color: #0052cc;
+  font-size: 14px;
+}
+
+.jiranimo-about-sparkle svg {
+  width: 1em;
+  height: 1em;
+}
+
+.jiranimo-about-section p {
+  margin: 0;
+  font-size: 14px;
+  color: #172b4d;
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 7px;
+  font-size: 12px;
+  font-family: inherit;
+  background: #f4f5f7;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  color: #172b4d;
+}
+
+.jiranimo-about-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #f4f5f7;
+  font-size: 12px;
+  color: #6b778c;
+}
+
+.jiranimo-about-sep {
+  opacity: 0.5;
+}
+
+.jiranimo-about-footer a {
+  color: #0052cc;
+  text-decoration: none;
+}
+
+.jiranimo-about-footer a:hover {
+  text-decoration: underline;
+}

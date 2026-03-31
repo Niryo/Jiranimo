@@ -601,5 +601,79 @@
     }
   }
 
+  // ── About overlay ────────────────────────────────────────────────────────────
+
+  /** @type {HTMLElement|null} */
+  let aboutOverlay = null;
+
+  function showAboutOverlay() {
+    if (aboutOverlay) {
+      closeAboutOverlay();
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'jiranimo-about-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'jiranimo-about-modal';
+
+    modal.innerHTML = `
+      <div class="jiranimo-about-header">
+        <span class="jiranimo-about-logo">${SPARKLES_SVG}</span>
+        <h2 class="jiranimo-about-title">Jiranimo</h2>
+        <button class="jiranimo-about-close" title="Close (Esc)">&times;</button>
+      </div>
+      <p class="jiranimo-about-tagline">Implement Jira tasks with Claude Code</p>
+      <div class="jiranimo-about-section">
+        <h3>How it works</h3>
+        <ol>
+          <li>Click the <span class="jiranimo-about-sparkle">${SPARKLES_SVG}</span> sparkle icon on any card to queue it for implementation.</li>
+          <li>Jiranimo sends the task to your local server, which hands it off to Claude Code.</li>
+          <li>Claude opens a git worktree, implements the changes, and opens a draft PR.</li>
+          <li>The badge turns green when the PR is ready. Click it to open the PR.</li>
+        </ol>
+      </div>
+      <div class="jiranimo-about-section">
+        <h3>Keyboard shortcut</h3>
+        <p><kbd>⌘E</kbd> — Toggle this About panel</p>
+      </div>
+      <div class="jiranimo-about-footer">
+        <span>v1.0.0</span>
+        <span class="jiranimo-about-sep">·</span>
+        <a href="http://localhost:3456" target="_blank" rel="noopener">Open dashboard</a>
+      </div>
+    `;
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    aboutOverlay = overlay;
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeAboutOverlay();
+    });
+
+    modal.querySelector('.jiranimo-about-close').addEventListener('click', closeAboutOverlay);
+  }
+
+  function closeAboutOverlay() {
+    if (aboutOverlay) {
+      aboutOverlay.remove();
+      aboutOverlay = null;
+    }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+      e.preventDefault();
+      showAboutOverlay();
+    }
+    if (e.key === 'Escape' && aboutOverlay) {
+      closeAboutOverlay();
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+
   init().catch(err => warn('Init failed:', err));
 })();
