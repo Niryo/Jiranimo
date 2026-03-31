@@ -6,7 +6,7 @@
  */
 
 // @ts-check
-/* global chrome, BoardConfig */
+/* global chrome, BoardConfig, AboutOverlay */
 
 (function () {
   'use strict';
@@ -602,4 +602,12 @@
   }
 
   init().catch(err => warn('Init failed:', err));
+
+  // Open the About overlay with Cmd+E (Mac) or Ctrl+E (Windows/Linux)
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+      e.preventDefault();
+      AboutOverlay.show();
+    }
+  });
 })();
