@@ -142,6 +142,7 @@ Ask yourself: how would a developer on this project run and view the feature the
 **Non-negotiable rules:**
 - Screenshot the REAL running feature. Never create a throwaway demo/mock HTML file just to screenshot it — that is not evidence the feature works, and it's not how a real developer would do it.
 - Do not give up after a brief look. Actually attempt to run the tests or start the app before concluding it's impossible.
+- After taking the screenshot, verify it's correct and actually shows the feature working. Print to stdout what you actually see on the screenshot.
 
 Call \`jiranimo_screenshot_failed\` only if you genuinely tried both approaches and both failed — and explain exactly what commands you ran and what errors you got.
 
