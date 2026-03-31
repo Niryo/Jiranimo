@@ -118,3 +118,133 @@
 .jiranimo-config-modal button:hover {
   background: #0065ff;
 }
+
+/* ── About overlay ─────────────────────────────────────────────── */
+
+.jiranimo-about-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(9, 30, 66, 0.54);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: jiranimo-fade-in 0.15s ease;
+}
+
+@keyframes jiranimo-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.jiranimo-about-modal {
+  background: #fff;
+  border-radius: 8px;
+  padding: 32px;
+  width: 440px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  color: #172b4d;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  animation: jiranimo-slide-up 0.15s ease;
+}
+
+@keyframes jiranimo-slide-up {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+.jiranimo-about-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.jiranimo-about-logo {
+  width: 36px;
+  height: 36px;
+  color: #0052cc;
+  flex-shrink: 0;
+}
+
+.jiranimo-about-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #172b4d;
+}
+
+.jiranimo-about-version {
+  font-size: 12px;
+  color: #6b778c;
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.jiranimo-about-desc {
+  font-size: 14px;
+  color: #42526e;
+  margin: 0 0 20px;
+  line-height: 1.6;
+}
+
+.jiranimo-about-section {
+  margin-bottom: 20px;
+}
+
+.jiranimo-about-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b778c;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 8px;
+}
+
+.jiranimo-about-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+  color: #172b4d;
+  border-bottom: 1px solid #f4f5f7;
+}
+
+.jiranimo-about-shortcut-row:last-child {
+  border-bottom: none;
+}
+
+.jiranimo-about-kbd {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.jiranimo-about-kbd kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  background: #f4f5f7;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: inherit;
+  color: #42526e;
+  line-height: 1.6;
+}
+
+.jiranimo-about-close {
+  margin-top: 4px;
+  padding: 8px 16px;
+  background: #0052cc;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.jiranimo-about-close:hover {
+  background: #0065ff;
+}
