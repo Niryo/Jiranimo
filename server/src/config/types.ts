@@ -23,13 +23,21 @@ export interface WebConfig {
   host: string;
 }
 
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface LoggingConfig {
+  level: LogLevel;
+  logHttpRequests: boolean;
+  logHttpBodies: boolean;
+  logClaudeRawOutput: boolean;
+}
+
 export interface ServerConfig {
-  reposRoot: string;
-  repoName?: string; // if set, skip repo discovery and use this repo directly
   claude: ClaudeConfig;
   pipeline: PipelineConfig;
   git: GitConfig;
   web: WebConfig;
+  logging?: LoggingConfig;
   logsDir?: string;
   statePath?: string;
 }

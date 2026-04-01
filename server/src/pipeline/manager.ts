@@ -1,9 +1,11 @@
 import { EventEmitter } from 'node:events';
-import { mkdirSync, writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
+import { createHash, randomUUID } from 'node:crypto';
+import type { ChildProcess } from 'node:child_process';
 import type { ServerConfig } from '../config/types.js';
-import type { TaskRecord } from '../state/types.js';
+import type { TaskRecord, TaskStatus, EffectRecord } from '../state/types.js';
 import type { ClaudeEvent, ExecutionResult, TaskInput } from '../claude/types.js';
 import { StateStore } from '../state/store.js';
 import { transition } from './state-machine.js';
@@ -12,18 +14,67 @@ import { classifyTask } from '../claude/task-classifier.js';
 import { executeClaudeCode } from '../claude/executor.js';
 import { pickRepo } from '../repo-picker.js';
 import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
+import type { RepoTarget } from '../runtime-target.js';
+import { createLogger, isSuppressedChildProcessLogLine, resolveLoggingConfig, type Logger } from '../logging/logger.js';
+
+const RESUME_GRACE_MS = 15_000;
+const EFFECT_CLAIM_LEASE_MS = 30_000;
+const WORKSPACE_ROOT = resolve(tmpdir(), 'jiranimo-workspaces');
+
+function jiraHostFromUrl(jiraUrl: string): string {
+  try {
+    return new URL(jiraUrl).host;
+  } catch {
+    return '';
+  }
+}
+
+function worktreePathForTask(taskKey: string): string {
+  return resolve(tmpdir(), `jiranimo-${taskKey}`);
+}
+
+function workspacePathForTask(taskKey: string): string {
+  return join(WORKSPACE_ROOT, taskKey);
+}
+
+function sha1(text: string): string {
+  return createHash('sha1').update(text).digest('hex');
+}
 
 export class PipelineManager extends EventEmitter {
   private store: StateStore;
   private config: ServerConfig;
+  private repoTarget: RepoTarget;
   private activeCount = 0;
-  private queue: string[] = [];
   private processing = false;
+  private activeChildren = new Map<string, ChildProcess>();
+  private resumeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private logger: Logger;
+  private loggingConfig: ReturnType<typeof resolveLoggingConfig>;
 
-  constructor(store: StateStore, config: ServerConfig) {
+  constructor(store: StateStore, config: ServerConfig, repoTarget: RepoTarget) {
     super();
     this.store = store;
     this.config = config;
+    this.repoTarget = repoTarget;
+    this.logger = createLogger(config, 'pipeline');
+    this.loggingConfig = resolveLoggingConfig(config);
+    this.recoverOnStartup();
+    setImmediate(() => this.processQueue());
+  }
+
+  getSyncSnapshot(jiraHost?: string): { serverEpoch: number; revision: number; tasks: TaskRecord[]; pendingEffects: EffectRecord[] } {
+    const released = this.store.releaseExpiredClaims();
+    if (released > 0) {
+      this.emitSyncNeeded();
+    }
+    const meta = this.store.getMeta();
+    return {
+      serverEpoch: meta.serverEpoch,
+      revision: meta.revision,
+      tasks: this.store.getAllTasks(),
+      pendingEffects: this.store.getPendingEffects(jiraHost).filter(effect => effect.status !== 'claimed' || effect.claimedBy),
+    };
   }
 
   submitTask(input: TaskInput): TaskRecord {
@@ -32,8 +83,6 @@ export class PipelineManager extends EventEmitter {
       throw new Error(`Task ${input.key} is already ${existing.status}`);
     }
 
-    // Detect screenshot retry: previous run completed but screenshot failed,
-    // and the new submission has a reply containing "screenshot" instructions.
     const isScreenshotRetry =
       existing?.status === 'completed' &&
       existing.screenshotFailed === true &&
@@ -58,23 +107,27 @@ export class PipelineManager extends EventEmitter {
       parentKey: input.parentKey,
       jiraUrl: input.jiraUrl,
       status: 'queued',
-      // Screenshot retry: pre-set mode and inherit PR info so the prompt has it
       ...(isScreenshotRetry && {
         taskMode: 'screenshot' as const,
         prUrl: existing!.prUrl,
         prNumber: existing!.prNumber,
         branchName: existing!.branchName,
       }),
-      createdAt: new Date().toISOString(),
+      worktreePath: existing?.worktreePath ?? worktreePathForTask(input.key),
+      workspacePath: existing?.workspacePath ?? workspacePathForTask(input.key),
+      attempt: existing?.attempt ?? 0,
+      recoveryState: 'none',
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    this.store.upsertTask(task);
+    const persisted = this.store.upsertTask(task);
+    this.store.enqueueTask(task.key);
     this.store.flushSync();
-    this.queue.push(task.key);
-    this.emit('task-created', task);
+    this.emit('task-created', persisted);
+    this.emitSyncNeeded();
     setImmediate(() => this.processQueue());
-    return task;
+    return persisted;
   }
 
   retryTask(key: string): TaskRecord {
@@ -82,16 +135,83 @@ export class PipelineManager extends EventEmitter {
     if (!task) throw new Error(`Task ${key} not found`);
 
     const newStatus = transition(task.status, 'retry');
-    const oldStatus = task.status;
-    this.store.updateTaskStatus(key, newStatus, { errorMessage: undefined });
+    const updated = this.store.updateTaskStatus(key, newStatus, {
+      errorMessage: undefined,
+      recoveryState: 'none',
+      resumeAfter: undefined,
+      resumeMode: undefined,
+      resumeReason: undefined,
+      completedAt: undefined,
+      activePid: undefined,
+    });
+    this.store.enqueueTask(key);
     this.store.flushSync();
-    this.queue.push(key);
-    this.emit('task-status-changed', this.store.getTask(key)!, oldStatus);
+    this.emitSyncNeeded();
     setImmediate(() => this.processQueue());
-    return this.store.getTask(key)!;
+    return updated;
   }
 
-  // Public methods called by MCP tool handlers
+  cancelResume(key: string): TaskRecord {
+    const task = this.store.getTask(key);
+    if (!task) throw new Error(`Task ${key} not found`);
+    if (task.status !== 'interrupted' || task.recoveryState !== 'resume-pending') {
+      throw new Error(`Task ${key} is not waiting to resume`);
+    }
+    this.clearResumeTimer(key);
+    const updated = this.store.patchTask(key, {
+      recoveryState: 'resume-cancelled',
+      resumeAfter: undefined,
+    });
+    this.store.flushSync();
+    this.emitSyncNeeded();
+    return updated;
+  }
+
+  resumeTask(key: string): TaskRecord {
+    const task = this.store.getTask(key);
+    if (!task) throw new Error(`Task ${key} not found`);
+    if (task.status !== 'interrupted') {
+      throw new Error(`Task ${key} is not interrupted`);
+    }
+    this.clearResumeTimer(key);
+    const updated = this.store.patchTask(key, {
+      recoveryState: 'resuming',
+      resumeAfter: undefined,
+      resumeMode: task.claudeSessionId ? 'claude-session' : 'fresh-recovery',
+    });
+    this.store.enqueueTask(key);
+    this.store.flushSync();
+    this.emitSyncNeeded();
+    setImmediate(() => this.processQueue());
+    return updated;
+  }
+
+  deleteTask(key: string): boolean {
+    this.clearResumeTimer(key);
+    const deleted = this.store.deleteTask(key);
+    if (deleted) {
+      this.store.flushSync();
+      this.emitSyncNeeded();
+    }
+    return deleted;
+  }
+
+  claimEffect(effectId: string, clientId: string): EffectRecord {
+    const effect = this.store.claimEffect(effectId, clientId, EFFECT_CLAIM_LEASE_MS);
+    this.store.flushSync();
+    this.emitSyncNeeded();
+    return effect;
+  }
+
+  ackEffect(effectId: string): boolean {
+    const acked = this.store.ackEffect(effectId);
+    if (acked) {
+      this.store.flushSync();
+      this.emitSyncNeeded();
+    }
+    return acked;
+  }
+
   reportProgress(key: string, message: string): void {
     this.emit('task-output', key, JSON.stringify({ type: 'progress', text: message }));
   }
@@ -99,26 +219,129 @@ export class PipelineManager extends EventEmitter {
   reportPr(key: string, prUrl: string, prNumber: number, branchName: string): void {
     const current = this.store.getTask(key);
     if (!current) return;
-    this.store.updateTaskStatus(key, current.status, { prUrl, prNumber, branchName });
+    this.store.patchTask(key, { prUrl, prNumber, branchName });
     this.store.flushSync();
+    this.emitSyncNeeded();
   }
 
   reportScreenshotFailed(key: string, reason: string): void {
     const current = this.store.getTask(key);
     if (!current) return;
-    this.store.updateTaskStatus(key, current.status, { screenshotFailed: true, screenshotFailReason: reason });
+    this.store.patchTask(key, { screenshotFailed: true, screenshotFailReason: reason });
     this.store.flushSync();
+    this.emitSyncNeeded();
   }
 
   completeViaAgent(key: string, summary: string): void {
     this.transitionTask(key, 'complete', {
       claudeResultText: summary,
       completedAt: new Date().toISOString(),
+      activePid: undefined,
+      recoveryState: 'none',
+      resumeAfter: undefined,
     });
   }
 
   failViaAgent(key: string, errorMessage: string): void {
-    this.transitionTask(key, 'fail', { errorMessage });
+    this.transitionTask(key, 'fail', {
+      errorMessage,
+      activePid: undefined,
+      recoveryState: 'none',
+      resumeAfter: undefined,
+    });
+  }
+
+  shutdown(): void {
+    for (const key of this.resumeTimers.keys()) {
+      this.clearResumeTimer(key);
+    }
+
+    for (const [key, child] of this.activeChildren.entries()) {
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // ignore
+      }
+      const task = this.store.getTask(key);
+      if (task?.status === 'in-progress') {
+        this.transitionTask(key, 'interrupt', {
+          recoveryState: 'resume-pending',
+          resumeAfter: new Date(Date.now() + RESUME_GRACE_MS).toISOString(),
+          resumeReason: 'server_shutdown',
+          resumeMode: task.claudeSessionId ? 'claude-session' : 'fresh-recovery',
+          activePid: undefined,
+        });
+      }
+    }
+
+    this.store.flushSync();
+  }
+
+  private recoverOnStartup(): void {
+    for (const key of [...this.store.getQueue()]) {
+      const task = this.store.getTask(key);
+      if (!task || task.status !== 'queued') {
+        this.store.removeFromQueue(key);
+      }
+    }
+
+    for (const task of this.store.getTasksByStatus('queued')) {
+      if (!this.store.getQueue().includes(task.key)) {
+        this.store.enqueueTask(task.key);
+      }
+    }
+
+    const interruptedAt = new Date(Date.now() + RESUME_GRACE_MS).toISOString();
+    for (const task of this.store.getTasksByStatus('in-progress')) {
+      this.bestEffortStopPid(task.activePid);
+      this.transitionTask(task.key, 'interrupt', {
+        recoveryState: 'resume-pending',
+        resumeAfter: interruptedAt,
+        resumeReason: 'server_restart',
+        resumeMode: task.claudeSessionId ? 'claude-session' : 'fresh-recovery',
+        activePid: undefined,
+      });
+    }
+
+    for (const task of this.store.getTasksByStatus('interrupted')) {
+      if (task.recoveryState === 'resume-pending' || task.recoveryState === 'resuming') {
+        const updated = this.store.patchTask(task.key, {
+          recoveryState: 'resume-pending',
+          resumeAfter: interruptedAt,
+          resumeMode: task.claudeSessionId ? 'claude-session' : 'fresh-recovery',
+        });
+        this.scheduleResume(updated);
+      }
+    }
+  }
+
+  private scheduleResume(task: TaskRecord): void {
+    if (task.status !== 'interrupted' || task.recoveryState !== 'resume-pending' || !task.resumeAfter) {
+      return;
+    }
+    this.clearResumeTimer(task.key);
+    const delay = Math.max(0, new Date(task.resumeAfter).getTime() - Date.now());
+    const timer = setTimeout(() => {
+      this.resumeTimers.delete(task.key);
+      const current = this.store.getTask(task.key);
+      if (!current || current.status !== 'interrupted' || current.recoveryState !== 'resume-pending') {
+        return;
+      }
+      this.resumeTask(task.key);
+    }, delay);
+    this.resumeTimers.set(task.key, timer);
+  }
+
+  private clearResumeTimer(key: string): void {
+    const timer = this.resumeTimers.get(key);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.resumeTimers.delete(key);
+  }
+
+  private emitSyncNeeded(): void {
+    const meta = this.store.getMeta();
+    this.emit('sync-needed', meta.serverEpoch, meta.revision);
   }
 
   private processQueue(): void {
@@ -127,169 +350,330 @@ export class PipelineManager extends EventEmitter {
 
     try {
       const limit = this.config.pipeline.concurrency;
-      while (this.queue.length > 0 && (limit === 0 || this.activeCount < limit)) {
-        const key = this.queue.shift();
+      while (this.store.getQueue().length > 0 && (limit === 0 || this.activeCount < limit)) {
+        const key = this.store.dequeueTask();
         if (!key) break;
         const task = this.store.getTask(key);
         if (!task) continue;
-        this.runTask(key);
+        this.runTask(key).catch(err => {
+          this.logger.error('Unhandled runTask error', { error: (err as Error).message, taskKey: key });
+        });
       }
     } finally {
       this.processing = false;
     }
   }
 
-  private transitionTask(key: string, action: 'start' | 'complete' | 'fail', extra?: Partial<TaskRecord>): void {
+  private transitionTask(key: string, action: 'start' | 'complete' | 'fail' | 'interrupt', extra?: Partial<TaskRecord>): TaskRecord | undefined {
     const task = this.store.getTask(key);
-    if (!task) return;
+    if (!task) return undefined;
     const oldStatus = task.status;
     const newStatus = transition(task.status, action);
-    this.store.updateTaskStatus(key, newStatus, extra);
+    const updated = this.store.updateTaskStatus(key, newStatus, extra);
+
+    if (newStatus === 'in-progress') {
+      this.createPipelineStatusEffect(updated, 'in-progress');
+    }
+
+    if (newStatus === 'completed') {
+      this.createPipelineStatusEffect(updated, 'completed');
+      if (updated.taskMode === 'plan' && updated.planContent) {
+        this.createPlanCommentEffect(updated);
+      } else {
+        this.createCompletionCommentEffect(updated);
+      }
+    }
+
+    if (newStatus === 'interrupted' && updated.recoveryState === 'resume-pending') {
+      this.scheduleResume(updated);
+    }
+
     this.store.flushSync();
-    const updated = this.store.getTask(key)!;
     this.emit('task-status-changed', updated, oldStatus);
     if (newStatus === 'completed' || newStatus === 'failed') {
       this.emit('task-completed', updated);
     }
+    this.emitSyncNeeded();
+    return updated;
+  }
+
+  private createPipelineStatusEffect(task: TaskRecord, pipelineStatus: 'in-progress' | 'completed'): void {
+    this.store.createEffect({
+      id: `${task.key}:status:${pipelineStatus}:${task.runId ?? task.attempt ?? 0}`,
+      type: 'pipeline-status-sync',
+      taskKey: task.key,
+      jiraHost: jiraHostFromUrl(task.jiraUrl),
+      payload: {
+        issueKey: task.key,
+        pipelineStatus,
+      },
+    });
+  }
+
+  private createCompletionCommentEffect(task: TaskRecord): void {
+    const body = this.buildCompletionComment(task);
+    this.store.createEffect({
+      id: `${task.key}:completion-comment:${task.runId ?? task.attempt ?? 0}`,
+      type: 'completion-comment',
+      taskKey: task.key,
+      jiraHost: jiraHostFromUrl(task.jiraUrl),
+      payload: {
+        issueKey: task.key,
+        body,
+        hash: sha1(body),
+      },
+    });
+  }
+
+  private createPlanCommentEffect(task: TaskRecord): void {
+    const body = task.planContent ?? '';
+    this.store.createEffect({
+      id: `${task.key}:plan-comment:${task.runId ?? task.attempt ?? 0}`,
+      type: 'plan-comment',
+      taskKey: task.key,
+      jiraHost: jiraHostFromUrl(task.jiraUrl),
+      payload: {
+        issueKey: task.key,
+        body,
+        hash: sha1(body),
+      },
+    });
+  }
+
+  private buildCompletionComment(task: TaskRecord): string {
+    const parts: string[] = [];
+    if (task.prUrl) parts.push(`Draft PR: ${task.prUrl}`);
+
+    if (task.claudeResultText) {
+      const text = task.claudeResultText.trim();
+      if (text.length > 10 && text.length < 2000) {
+        parts.push(text);
+      }
+    }
+
+    if (typeof task.claudeCostUsd === 'number') {
+      parts.push(`Cost: $${task.claudeCostUsd.toFixed(2)}`);
+    }
+
+    if (task.screenshotFailed) {
+      const reason = task.screenshotFailReason ? ` Reason: ${task.screenshotFailReason}` : '';
+      parts.push(
+        `⚠️ I wasn't able to take a screenshot of the feature.${reason}\n\n` +
+        `To add one: reply to this comment with instructions on how to screenshot this feature ` +
+        `(e.g. which URL to visit, how to start the dev server, what to click), ` +
+        `then click the AI button on this card again.`,
+      );
+    }
+
+    if (parts.length === 0) {
+      parts.push('Done');
+    }
+
+    parts.push('\n— Jiranimo + Claude Code');
+    return parts.join('\n\n');
+  }
+
+  private bestEffortStopPid(pid?: number): void {
+    if (!pid) return;
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // ignore
+    }
+  }
+
+  private cleanupWorkspace(task: TaskRecord): void {
+    if (!task.workspacePath) return;
+    deleteMcpConfig(task.workspacePath);
+    try {
+      rmSync(task.workspacePath, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
   }
 
   private async runTask(key: string): Promise<void> {
-    const task = this.store.getTask(key)!;
+    const task = this.store.getTask(key);
+    if (!task) return;
+
+    const wasInterrupted = task.status === 'interrupted';
+    const resumeMode = wasInterrupted
+      ? (task.claudeSessionId ? 'claude-session' as const : 'fresh-recovery' as const)
+      : undefined;
+    const workspacePath = task.workspacePath ?? workspacePathForTask(key);
+    const worktreePath = task.worktreePath ?? worktreePathForTask(key);
+
+    mkdirSync(workspacePath, { recursive: true });
 
     this.activeCount++;
-    console.log(`\n${'='.repeat(60)}`);
     const concurrencyLabel = this.config.pipeline.concurrency === 0 ? 'unlimited' : String(this.config.pipeline.concurrency);
-    console.log(`[PIPELINE] Starting task: ${task.key} — ${task.summary} (${this.activeCount}/${concurrencyLabel} active)`);
-    console.log(`${'='.repeat(60)}`);
-    this.transitionTask(key, 'start', { startedAt: new Date().toISOString() });
+    const taskLogger = this.logger.child(key);
+    taskLogger.info('Task started', {
+      summary: task.summary,
+      activeCount: this.activeCount,
+      concurrency: concurrencyLabel,
+      resumed: wasInterrupted,
+    });
+
+    const started = this.transitionTask(key, 'start', {
+      startedAt: new Date().toISOString(),
+      attempt: (task.attempt ?? 0) + 1,
+      runId: randomUUID(),
+      workspacePath,
+      worktreePath,
+      recoveryState: wasInterrupted ? 'resuming' : 'none',
+      resumeAfter: undefined,
+      resumeMode,
+      activePid: undefined,
+      errorMessage: undefined,
+    });
+    if (!started) {
+      this.activeCount--;
+      return;
+    }
 
     const logsDir = this.config.logsDir ?? resolve(homedir(), '.jiranimo', 'logs');
     mkdirSync(logsDir, { recursive: true });
     const logPath = join(logsDir, `${key}-${Date.now()}.jsonl`);
     const logLines: string[] = [];
-    let workDir: string | null = null;
 
     try {
-      // 1. Discover repo and classify task mode in parallel
       const [repoPath, taskMode] = await Promise.all([
-        this.config.repoName
-          ? Promise.resolve(join(this.config.reposRoot, this.config.repoName))
-          : pickRepo(this.config.reposRoot, task),
-        // Skip classifier if mode already determined (e.g. screenshot retry)
-        task.taskMode != null
-          ? Promise.resolve(task.taskMode)
-          : classifyTask(task),
+        this.repoTarget.kind === 'single-repo'
+          ? Promise.resolve(this.repoTarget.repoPath)
+          : pickRepo(this.repoTarget.reposRoot, started),
+        started.taskMode != null
+          ? Promise.resolve(started.taskMode)
+          : classifyTask(started),
       ]);
-      console.log(`[PIPELINE] Selected repo: ${repoPath}`);
-      console.log(`[PIPELINE] Task mode: ${taskMode}`);
-      this.store.updateTaskStatus(key, this.store.getTask(key)!.status, { taskMode });
+
+      this.store.patchTask(key, { taskMode, logPath });
       this.store.flushSync();
+      this.emitSyncNeeded();
 
-      // 2. Create isolated work dir and write .mcp.json so Claude can call back
-      workDir = mkdtempSync(join(tmpdir(), `jiranimo-${key}-`));
-      writeMcpConfig(workDir, this.config.web.port);
+      writeMcpConfig(workspacePath, this.config.web.port);
 
-      // 3. Build prompt with all task context + git/MCP instructions
-      const screenshotContext = taskMode === 'screenshot' && task.prUrl && task.branchName
-        ? { prUrl: task.prUrl, prNumber: task.prNumber!, branchName: task.branchName }
+      const screenshotContext = taskMode === 'screenshot' && started.prUrl && started.branchName
+        ? { prUrl: started.prUrl, prNumber: started.prNumber!, branchName: started.branchName }
         : undefined;
-      const prompt = buildPrompt({ ...task, comments: task.comments ?? [] }, this.config, repoPath, taskMode, screenshotContext);
-      console.log(`[PIPELINE] Prompt built (${prompt.length} chars)`);
-      console.log(`[PIPELINE] Spawning Claude Code...`);
-      console.log(`${'─'.repeat(60)}`);
+      const prompt = buildPrompt(
+        { ...started, comments: started.comments ?? [] },
+        this.config,
+        repoPath,
+        taskMode,
+        screenshotContext,
+        wasInterrupted
+          ? {
+              wasInterrupted: true,
+              resumeMode: resumeMode ?? 'fresh-recovery',
+              worktreePath,
+              workspacePath,
+              branchName: started.branchName,
+              prUrl: started.prUrl,
+              logPath,
+            }
+          : undefined,
+      );
 
       let sessionLogged = false;
       const result: ExecutionResult = await executeClaudeCode({
         prompt,
-        cwd: workDir,
+        cwd: workspacePath,
         config: this.config.claude,
         timeoutMs: 30 * 60 * 1000,
+        resumeSessionId: wasInterrupted ? started.claudeSessionId : undefined,
+        onSpawn: (child) => {
+          this.activeChildren.set(key, child);
+          this.store.patchTask(key, { activePid: child.pid });
+          this.store.flushSync();
+          this.emitSyncNeeded();
+        },
         onEvent: (event: ClaudeEvent) => {
           logLines.push(JSON.stringify(event.raw));
           this.emit('task-output', key, JSON.stringify(event.raw));
-          if (event.text) {
-            console.log(`[CLAUDE] ${event.text}`);
-          } else if (event.type === 'init' && event.sessionId && !sessionLogged) {
+          if (event.type === 'init' && event.sessionId && !sessionLogged) {
             sessionLogged = true;
-            console.log(`[CLAUDE] Session started: ${event.sessionId}`);
+            taskLogger.info('Claude session started', { sessionId: event.sessionId });
           } else if (event.type === 'result') {
-            console.log(`[CLAUDE] Result: ${event.isError ? 'ERROR' : 'SUCCESS'} — ${event.text?.slice(0, 200) || ''}`);
+            taskLogger.info('Claude result received', {
+              success: !event.isError,
+              summary: event.text?.slice(0, 200) || '',
+            });
+          } else if (event.text) {
+            taskLogger.debug('Claude message', { text: event.text });
           }
         },
         onOutput: (raw: string) => {
           for (const line of raw.split('\n')) {
             const trimmed = line.trim();
-            if (trimmed && !trimmed.startsWith('{')) {
-              console.log(`[CLAUDE RAW] ${trimmed}`);
+            if (!trimmed || trimmed.startsWith('{')) {
+              continue;
+            }
+            const suppressed = isSuppressedChildProcessLogLine(trimmed);
+            logLines.push(JSON.stringify({ type: 'raw-output', text: trimmed, suppressed }));
+            if (suppressed) continue;
+            if (this.loggingConfig.logClaudeRawOutput || taskLogger.isConsoleLevelEnabled('debug')) {
+              taskLogger.debug('Claude raw output', { text: trimmed });
             }
           }
         },
       });
 
-      console.log(`${'─'.repeat(60)}`);
-      console.log(`[PIPELINE] Claude finished — success: ${result.success}, cost: $${result.costUsd ?? 0}, duration: ${result.durationMs}ms`);
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
-      console.log(`[PIPELINE] Logs saved to: ${logPath}`);
 
-      // 4. Persist cost/session regardless of how the task was transitioned
-      this.store.updateTaskStatus(key, this.store.getTask(key)!.status, {
-        claudeSessionId: result.sessionId,
+      this.store.patchTask(key, {
+        claudeSessionId: result.sessionId ?? this.store.getTask(key)?.claudeSessionId,
         claudeCostUsd: result.costUsd,
         logPath,
+        activePid: undefined,
       });
       this.store.flushSync();
+      this.emitSyncNeeded();
 
-      // 5. In plan mode, read the plan file Claude wrote, persist it, then broadcast it
       if (taskMode === 'plan') {
         const planFile = planFilePath(key);
         if (existsSync(planFile)) {
           const planContent = readFileSync(planFile, 'utf-8');
           try { rmSync(planFile); } catch { /* ignore */ }
-          console.log(`[PIPELINE] Plan file read (${planContent.length} chars)`);
-          this.store.updateTaskStatus(key, this.store.getTask(key)!.status, { planContent });
+          this.store.patchTask(key, { planContent });
           this.store.flushSync();
           this.emit('task-plan-ready', key, planContent);
-        } else {
-          console.warn(`[PIPELINE] Plan mode but no plan file found at ${planFile}`);
+          this.emitSyncNeeded();
         }
       }
 
-      // 5. Fallback: if Claude didn't call jiranimo_complete/fail via MCP, use process exit
-      const currentStatus = this.store.getTask(key)!.status;
+      const currentStatus = this.store.getTask(key)?.status;
       if (currentStatus === 'in-progress') {
         if (!result.success) {
-          throw new Error(result.resultText ?? 'Claude exited with failure');
+          throw new Error(result.resultText || 'Claude exited with failure');
         }
         this.transitionTask(key, 'complete', {
           claudeResultText: result.resultText,
           completedAt: new Date().toISOString(),
+          logPath,
+          activePid: undefined,
         });
       }
 
-      console.log(`[PIPELINE] ✓ Task ${key} completed`);
-      console.log(`${'='.repeat(60)}\n`);
+      taskLogger.info('Task completed', { logPath });
     } catch (err) {
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
-      console.error(`[PIPELINE] ✗ Task ${key} failed: ${(err as Error).message}`);
-      console.log(`[PIPELINE] Logs: ${logPath}`);
-      console.log(`${'='.repeat(60)}\n`);
+      taskLogger.error('Task failed', { error: (err as Error).message, logPath });
       const currentStatus = this.store.getTask(key)?.status;
       if (currentStatus === 'in-progress') {
         this.transitionTask(key, 'fail', {
           errorMessage: (err as Error).message,
           logPath,
+          activePid: undefined,
         });
       }
     } finally {
-      if (workDir) {
-        deleteMcpConfig(workDir);
-        try {
-          rmSync(workDir, { recursive: true, force: true });
-        } catch {
-          // ignore cleanup errors
-        }
-      }
+      this.activeChildren.delete(key);
       this.activeCount--;
+      const current = this.store.getTask(key);
+      if (current && (current.status === 'completed' || current.status === 'failed')) {
+        this.cleanupWorkspace(current);
+      }
       this.processQueue();
     }
   }

@@ -15,7 +15,6 @@ const baseTask: TaskInput = {
 };
 
 const baseConfig: ServerConfig = {
-  reposRoot: '/home/dev/repos',
   claude: { maxBudgetUsd: 2.0 },
   pipeline: { concurrency: 1 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },

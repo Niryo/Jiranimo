@@ -1,12 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { serverConfigSchema } from './schema.js';
 
-const validMinimal = {
-  reposRoot: '/tmp/repos',
-};
+const validMinimal = {};
 
 const validFull = {
-  reposRoot: '/tmp/repos',
   claude: { model: 'sonnet', maxBudgetUsd: 5.0, allowedTools: ['Edit', 'Read'] },
   pipeline: { concurrency: 3 },
   git: { branchPrefix: 'auto/', defaultBaseBranch: 'develop', pushRemote: 'upstream', createDraftPr: false },
@@ -16,7 +13,6 @@ const validFull = {
 describe('serverConfigSchema', () => {
   it('accepts minimal valid config and applies defaults', () => {
     const result = serverConfigSchema.parse(validMinimal);
-    expect(result.reposRoot).toBe('/tmp/repos');
     expect(result.claude.maxBudgetUsd).toBe(2.0);
     expect(result.pipeline.concurrency).toBe(1);
     expect(result.git.branchPrefix).toBe('jiranimo/');
@@ -36,14 +32,17 @@ describe('serverConfigSchema', () => {
     expect(result.web.port).toBe(8080);
   });
 
-  it('rejects config with missing reposRoot', () => {
-    const result = serverConfigSchema.safeParse({});
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects config with empty reposRoot', () => {
-    const result = serverConfigSchema.safeParse({ reposRoot: '' });
-    expect(result.success).toBe(false);
+  it('ignores legacy repo location keys', () => {
+    const result = serverConfigSchema.parse({
+      repoPath: '/legacy/path',
+      reposRoot: '/legacy/root',
+      repoName: 'legacy-repo',
+      git: { branchPrefix: 'auto/' },
+    });
+    expect(result.git.branchPrefix).toBe('auto/');
+    expect(result).not.toHaveProperty('repoPath');
+    expect(result).not.toHaveProperty('reposRoot');
+    expect(result).not.toHaveProperty('repoName');
   });
 
   it('rejects negative maxBudgetUsd', () => {

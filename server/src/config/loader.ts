@@ -28,7 +28,7 @@ function resolveEnvVars(obj: unknown): unknown {
   return obj;
 }
 
-function findConfigFile(searchPaths?: string[]): string {
+function findConfigFile(searchPaths?: string[]): string | undefined {
   const paths = searchPaths ?? [
     resolve(process.cwd(), CONFIG_FILENAME),
     resolve(homedir(), '.jiranimo', CONFIG_FILENAME),
@@ -42,14 +42,14 @@ function findConfigFile(searchPaths?: string[]): string {
       continue;
     }
   }
-
-  throw new Error(
-    `Config file not found. Searched:\n${paths.map(p => `  - ${p}`).join('\n')}\n\nCreate a ${CONFIG_FILENAME} file with your project mappings.`
-  );
 }
 
 export function loadConfig(options?: { configPath?: string; searchPaths?: string[] }): ServerConfig {
   const configPath = options?.configPath ?? findConfigFile(options?.searchPaths);
+
+  if (!configPath) {
+    return serverConfigSchema.parse({}) as ServerConfig;
+  }
 
   let raw: string;
   try {

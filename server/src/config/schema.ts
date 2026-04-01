@@ -30,9 +30,14 @@ const webConfigSchema = z.object({
   host: z.string().default('127.0.0.1'),
 });
 
+const loggingConfigSchema = z.object({
+  level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  logHttpRequests: z.boolean().default(true),
+  logHttpBodies: z.boolean().default(false),
+  logClaudeRawOutput: z.boolean().default(false),
+});
+
 export const serverConfigSchema = z.object({
-  reposRoot: z.string().min(1),
-  repoName: z.string().optional(),
   logsDir: z.string().optional(),
   statePath: z.string().optional(),
   claude: claudeConfigSchema.default({ maxBudgetUsd: 2.0, allowedTools: DEFAULT_ALLOWED_TOOLS }),
@@ -44,6 +49,12 @@ export const serverConfigSchema = z.object({
     createDraftPr: true,
   }),
   web: webConfigSchema.default({ port: 3456, host: '127.0.0.1' }),
+  logging: loggingConfigSchema.default({
+    level: 'info',
+    logHttpRequests: true,
+    logHttpBodies: false,
+    logClaudeRawOutput: false,
+  }),
 });
 
 export type ServerConfigInput = z.input<typeof serverConfigSchema>;

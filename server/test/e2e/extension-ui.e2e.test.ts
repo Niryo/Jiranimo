@@ -4,7 +4,7 @@
  * and take real PNG screenshots of the config modal and badges.
  */
 
-import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
 import { createServer, type Server } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -19,6 +19,16 @@ let browser: Browser;
 let server: Server;
 let serverPort: number;
 let stepCounter = 0;
+let mockSprintIssues: Array<{ key: string; fields: { summary: string; labels: string[] } }> = [];
+
+function resetMockSprintIssues() {
+  mockSprintIssues = [
+    { key: 'JTEST-101', fields: { summary: 'Add user authentication flow', labels: ['frontend'] } },
+    { key: 'JTEST-102', fields: { summary: 'Update README with setup instructions', labels: [] } },
+    { key: 'JTEST-103', fields: { summary: 'Fix pagination bug on search results', labels: ['bug'] } },
+    { key: 'JTEST-100', fields: { summary: 'Set up CI/CD pipeline', labels: [] } },
+  ];
+}
 
 const BOARD_URL = () => `http://127.0.0.1:${serverPort}/jira/software/projects/JTEST/boards/1`;
 const extUrl = (path: string) => `http://127.0.0.1:${serverPort}/ext/${path}`;
@@ -47,13 +57,10 @@ function startMockServer(): Promise<number> {
         req.on('data', chunk => body += chunk);
         req.on('end', () => {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          // Return labels for mock issues
-          const issues = [
-            { key: 'JTEST-101', fields: { labels: ['ai-ready', 'frontend'] } },
-            { key: 'JTEST-102', fields: { labels: [] } },
-            { key: 'JTEST-103', fields: { labels: ['ai-ready', 'bug'] } },
-            { key: 'JTEST-100', fields: { labels: ['ai-ready'] } },
-          ];
+          const issues = mockSprintIssues.map(issue => ({
+            key: issue.key,
+            fields: { labels: issue.fields.labels },
+          }));
           res.end(JSON.stringify({ issues }));
         });
         return;
@@ -67,35 +74,23 @@ function startMockServer(): Promise<number> {
       // Mock Jira Agile API for sprint issues (includes labels for filtering)
       if (req.url?.match(/\/rest\/agile\/1\.0\/sprint\/1\/issue/)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          issues: [
-            { key: 'JTEST-101', fields: { summary: 'Add user authentication flow', labels: ['ai-ready', 'frontend'] } },
-            { key: 'JTEST-102', fields: { summary: 'Update README with setup instructions', labels: [] } },
-            { key: 'JTEST-103', fields: { summary: 'Fix pagination bug on search results', labels: ['ai-ready', 'bug'] } },
-            { key: 'JTEST-100', fields: { summary: 'Set up CI/CD pipeline', labels: ['ai-ready'] } },
-          ],
-        }));
+        res.end(JSON.stringify({ issues: mockSprintIssues }));
         return;
       }
       // Mock individual Jira issue details (used by fetchIssueDetails on badge click)
       const issueMatch = req.url?.match(/\/rest\/api\/3\/issue\/(JTEST-\d+)/);
       if (issueMatch) {
         const key = issueMatch[1];
-        const summaries: Record<string, string> = {
-          'JTEST-100': 'Set up CI/CD pipeline',
-          'JTEST-101': 'Add user authentication flow',
-          'JTEST-102': 'Update README with setup instructions',
-          'JTEST-103': 'Fix pagination bug on search results',
-        };
+        const issue = mockSprintIssues.find(candidate => candidate.key === key);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           key,
           fields: {
-            summary: summaries[key] || key,
+            summary: issue?.fields.summary || key,
             description: null,
             priority: { name: 'Medium' },
             issuetype: { name: 'Task' },
-            labels: [],
+            labels: issue?.fields.labels || [],
             comment: { comments: [] },
             status: { name: 'To Do' },
             subtasks: [],
@@ -184,7 +179,7 @@ async function setupChromeMock(page: Page) {
 async function presetBoardConfig(page: Page) {
   await page.evaluate(() => {
     (window as any).__jiranimoStorage['boardConfig_1'] = {
-      boardId: '1', projectKey: 'JTEST', triggerLabel: 'ai-ready',
+      boardId: '1', projectKey: 'JTEST',
       transitions: { inProgress: { name: 'In Progress', id: '21' }, inReview: { name: 'Done', id: '31' } },
     };
   });
@@ -211,8 +206,13 @@ async function setupPage(opts?: { presetConfig?: boolean }): Promise<Page> {
 beforeAll(async () => {
   if (existsSync(SCREENSHOTS_DIR)) rmSync(SCREENSHOTS_DIR, { recursive: true, force: true });
   mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+  resetMockSprintIssues();
   serverPort = await startMockServer();
   browser = await chromium.launch({ headless: process.env.PWHEADLESS !== 'false' });
+});
+
+beforeEach(() => {
+  resetMockSprintIssues();
 });
 
 afterAll(async () => {
@@ -268,7 +268,7 @@ describe('Extension UI E2E', () => {
     await page.close();
   });
 
-  it('injects implement badges on cards with ai-ready label', async () => {
+  it('injects implement badges on every visible card', async () => {
     stepCounter = 0;
     const page = await setupPage({ presetConfig: true });
 
@@ -281,10 +281,10 @@ describe('Extension UI E2E', () => {
     await page.screenshot({ path: screenshotPath('badges', `found-${badgeKeys.length}-badges`), fullPage: true });
 
     expect(badgeKeys).toContain('JTEST-101');
+    expect(badgeKeys).toContain('JTEST-102');
     expect(badgeKeys).toContain('JTEST-103');
     expect(badgeKeys).toContain('JTEST-100');
-    expect(badgeKeys).not.toContain('JTEST-102');
-    expect(badgeKeys.length).toBe(3);
+    expect(badgeKeys.length).toBe(4);
 
     await page.close();
   });
@@ -321,23 +321,15 @@ describe('Extension UI E2E', () => {
     await page.close();
   });
 
-  it('detects labels via API even when card DOM has no label text', async () => {
-    // Bug: Jira board cards don't render label text in the DOM.
-    // The extension must use the Jira API to check labels, not DOM scanning.
+  it('keeps badge injection working even when label elements are removed', async () => {
     stepCounter = 0;
     const page = await setupPage({ presetConfig: true });
     await page.waitForSelector('[data-jiranimo]', { timeout: 5000 });
 
-    // JTEST-102 has NO label text in the mock DOM but the API says it has no ai-ready label
-    // JTEST-101 has label text in the DOM AND the API confirms ai-ready
-    // The key test: even if we remove all label text from the DOM, badges still appear
-    // because they come from the API, not DOM text
     await page.evaluate(() => {
-      // Remove all visible label elements from cards
       document.querySelectorAll('[data-testid="label"]').forEach(el => el.remove());
     });
 
-    // Re-scan (trigger MutationObserver by adding a dummy element)
     await page.evaluate(() => {
       const div = document.createElement('div');
       document.body.appendChild(div);
@@ -345,19 +337,18 @@ describe('Extension UI E2E', () => {
     });
     await page.waitForTimeout(1000);
 
-    // Badges should STILL be present because labels come from API, not DOM
     const badgeKeys = await page.locator('[data-jiranimo]').evaluateAll(
       els => els.map(el => el.getAttribute('data-jiranimo'))
     );
-    await page.screenshot({ path: screenshotPath('api-label-detection', 'badges-from-api-not-dom'), fullPage: true });
+    await page.screenshot({ path: screenshotPath('card-dom-detection', 'badges-still-present'), fullPage: true });
 
     expect(badgeKeys).toContain('JTEST-101');
+    expect(badgeKeys).toContain('JTEST-102');
     expect(badgeKeys).toContain('JTEST-103');
     expect(badgeKeys).toContain('JTEST-100');
-    expect(badgeKeys).not.toContain('JTEST-102');
 
     const card = page.locator('[data-rbd-draggable-id="JTEST-101"]');
-    await card.screenshot({ path: screenshotPath('api-label-detection', 'badge-closeup-no-dom-labels') });
+    await card.screenshot({ path: screenshotPath('card-dom-detection', 'badge-closeup-no-dom-labels') });
 
     await page.close();
   });
@@ -393,6 +384,46 @@ describe('Extension UI E2E', () => {
     for (const [key, count] of Object.entries(counts)) {
       expect(count, `${key} should have exactly 1 badge`).toBe(1);
     }
+
+    await page.close();
+  });
+
+  it('injects a badge for a new card added after initial load', async () => {
+    stepCounter = 0;
+    const page = await setupPage({ presetConfig: true });
+    await page.waitForSelector('[data-jiranimo="JTEST-101"]', { timeout: 5000 });
+
+    mockSprintIssues.push({
+      key: 'JTEST-104',
+      fields: { summary: 'New issue created after page load', labels: [] },
+    });
+
+    await page.evaluate(() => {
+      const todoColumn = document.querySelector('.column');
+      if (!todoColumn) throw new Error('To Do column not found');
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.setAttribute('data-testid', 'platform-board-kit.ui.card.card');
+      card.setAttribute('data-rbd-draggable-id', 'JTEST-104');
+      card.innerHTML = `
+        <div class="card-summary">New issue created after page load</div>
+        <div class="card-labels"></div>
+        <div class="card-footer">
+          <div class="card-key">JTEST-104</div>
+          <div class="avatar"></div>
+          <span class="priority">Medium</span>
+        </div>
+      `;
+
+      todoColumn.appendChild(card);
+    });
+
+    await page.waitForSelector('[data-jiranimo="JTEST-104"]', { timeout: 5000 });
+    await page.screenshot({ path: screenshotPath('dynamic-card-badges', 'new-card-badge-injected'), fullPage: true });
+
+    const card = page.locator('[data-rbd-draggable-id="JTEST-104"]');
+    await card.screenshot({ path: screenshotPath('dynamic-card-badges', 'new-card-closeup') });
 
     await page.close();
   });

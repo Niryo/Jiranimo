@@ -67,6 +67,31 @@ export async function addIssuesToSprint(sprintId: number, issueKeys: string[]): 
   }
 }
 
+async function waitForIssueInSprint(
+  sprintId: number,
+  issueKey: string,
+  timeoutMs = 30_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const res = await jiraRequest(
+      'GET',
+      `/rest/agile/1.0/sprint/${sprintId}/issue?fields=summary&maxResults=200`,
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const issues = data.issues ?? [];
+      if (issues.some((issue: { key?: string }) => issue.key === issueKey)) {
+        return true;
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+  }
+
+  return false;
+}
+
 export async function createTestIssue(fields: {
   summary: string;
   projectKey?: string;
@@ -97,6 +122,10 @@ export async function createTestIssue(fields: {
     const sprintId = await getActiveSprintId(fields.boardId);
     if (sprintId) {
       await addIssuesToSprint(sprintId, [key]);
+      const visibleInSprint = await waitForIssueInSprint(sprintId, key);
+      if (!visibleInSprint) {
+        throw new Error(`Issue ${key} was added to sprint ${sprintId} but never appeared in sprint issues`);
+      }
     }
   }
 

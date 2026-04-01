@@ -1,5 +1,23 @@
-export type TaskStatus = 'queued' | 'in-progress' | 'completed' | 'failed';
+export type TaskStatus = 'queued' | 'in-progress' | 'interrupted' | 'completed' | 'failed';
 export type TaskMode = 'plan' | 'implement' | 'screenshot';
+export type RecoveryState = 'none' | 'resume-pending' | 'resume-cancelled' | 'resuming';
+export type ResumeMode = 'claude-session' | 'fresh-recovery';
+export type EffectType = 'pipeline-status-sync' | 'completion-comment' | 'plan-comment';
+export type EffectStatus = 'pending' | 'claimed';
+
+export interface EffectRecord {
+  id: string;
+  type: EffectType;
+  taskKey: string;
+  jiraHost: string;
+  payload: Record<string, unknown>;
+  status: EffectStatus;
+  claimedBy?: string;
+  claimExpiresAt?: string;
+  claimEpoch?: number;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface TaskRecord {
   key: string;
@@ -29,6 +47,15 @@ export interface TaskRecord {
   planContent?: string;
   errorMessage?: string;
   logPath?: string;
+  workspacePath?: string;
+  worktreePath?: string;
+  activePid?: number;
+  runId?: string;
+  attempt?: number;
+  recoveryState?: RecoveryState;
+  resumeAfter?: string;
+  resumeReason?: string;
+  resumeMode?: ResumeMode;
   screenshotFailed?: boolean;
   screenshotFailReason?: string;
   createdAt: string;
@@ -37,6 +64,14 @@ export interface TaskRecord {
   completedAt?: string;
 }
 
+export interface AppMeta {
+  serverEpoch: number;
+  revision: number;
+}
+
 export interface AppState {
+  meta: AppMeta;
   tasks: Record<string, TaskRecord>;
+  queue: string[];
+  effects: Record<string, EffectRecord>;
 }

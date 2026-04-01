@@ -6,7 +6,7 @@
  *
  * This worker handles:
  * - Extension settings
- * - Dev mode auto-reload (listens for reload signal from server WebSocket)
+ * - Optional local auto-reload (listens for reload signals from the server WebSocket)
  */
 
 // @ts-check
@@ -14,21 +14,32 @@
 const LOG = '[Jiranimo BG]';
 let serverUrl = 'http://localhost:3456';
 
+function normalizeServerUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === '127.0.0.1') {
+      parsed.hostname = 'localhost';
+    }
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return url;
+  }
+}
+
 // Load settings on startup
 chrome.storage.local.get(['serverUrl'], (result) => {
-  if (result.serverUrl) serverUrl = result.serverUrl;
+  if (result.serverUrl) serverUrl = normalizeServerUrl(result.serverUrl);
 });
 
 // Listen for settings changes
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.serverUrl?.newValue) {
-    serverUrl = changes.serverUrl.newValue;
+    serverUrl = normalizeServerUrl(changes.serverUrl.newValue);
   }
 });
 
-// --- Dev mode auto-reload ---
-// Connect to server WebSocket and listen for extension-reload signals.
-// In production the server isn't on localhost, so this silently fails.
+// --- Optional local auto-reload ---
+// Connect to the configured server WebSocket and listen for extension-reload signals.
 function connectForAutoReload() {
   const wsUrl = serverUrl.replace(/^http/, 'ws') + '/ws';
   try {
@@ -47,7 +58,7 @@ function connectForAutoReload() {
     };
 
     ws.onclose = () => {
-      // Reconnect after delay (server might restart during dev)
+      // Reconnect after delay in case the local server restarts.
       setTimeout(connectForAutoReload, 5000);
     };
 

@@ -6,7 +6,10 @@ const transitions: Record<string, TaskStatus> = {
   'queued:fail': 'failed',
   'in-progress:complete': 'completed',
   'in-progress:fail': 'failed',
+  'in-progress:interrupt': 'interrupted',
   'failed:retry': 'queued',
+  'interrupted:start': 'in-progress',
+  'interrupted:retry': 'queued',
 };
 
 export function transition(currentStatus: TaskStatus, action: TaskAction): TaskStatus {

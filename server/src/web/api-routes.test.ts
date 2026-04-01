@@ -23,12 +23,12 @@ vi.mock('../mcp/server.js', () => ({
 }));
 
 const testConfig: ServerConfig = {
-  reposRoot: '/tmp/repos',
   claude: { maxBudgetUsd: 2.0 },
   pipeline: { concurrency: 1 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },
   web: { port: 3456, host: '127.0.0.1' },
 };
+const testRepoTarget = { kind: 'repo-root' as const, reposRoot: '/tmp/repos' };
 
 const validTask = {
   key: 'PROJ-1',
@@ -49,7 +49,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   tmpDir = mkdtempSync(join(tmpdir(), 'jiranimo-api-test-'));
   store = new StateStore({ filePath: join(tmpDir, 'state.json'), flushDelayMs: 0 });
-  pipeline = new PipelineManager(store, testConfig);
+  pipeline = new PipelineManager(store, testConfig, testRepoTarget);
   app = createApp(store, pipeline);
 });
 
@@ -116,6 +116,25 @@ describe('GET /api/tasks', () => {
   });
 });
 
+describe('GET /api/sync', () => {
+  it('returns server epoch, revision, tasks, and pending effects', async () => {
+    store.beginServerEpoch();
+    store.createEffect({
+      id: 'effect-1',
+      type: 'pipeline-status-sync',
+      taskKey: 'PROJ-1',
+      jiraHost: 'test.atlassian.net',
+      payload: { issueKey: 'PROJ-1', pipelineStatus: 'in-progress' },
+    });
+
+    const res = await request(app).get('/api/sync?jiraHost=test.atlassian.net');
+    expect(res.status).toBe(200);
+    expect(res.body.serverEpoch).toBe(1);
+    expect(Array.isArray(res.body.tasks)).toBe(true);
+    expect(res.body.pendingEffects).toHaveLength(1);
+  });
+});
+
 describe('GET /api/tasks/:key', () => {
   it('returns task by key', async () => {
     await request(app).post('/api/tasks').send(validTask);
@@ -170,6 +189,49 @@ describe('POST /api/tasks/:key/retry', () => {
 
     const res = await request(app).post('/api/tasks/PROJ-1/retry');
     expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/tasks/:key/cancel-resume', () => {
+  it('cancels a pending resume', async () => {
+    store.upsertTask({
+      key: 'PROJ-INT', summary: 'Interrupted', description: 'Test',
+      priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-INT',
+      status: 'interrupted', recoveryState: 'resume-pending', resumeAfter: new Date(Date.now() + 30_000).toISOString(),
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const res = await request(app).post('/api/tasks/PROJ-INT/cancel-resume');
+    expect(res.status).toBe(200);
+    expect(res.body.recoveryState).toBe('resume-cancelled');
+  });
+});
+
+describe('Effects APIs', () => {
+  it('claims and acknowledges an effect', async () => {
+    store.beginServerEpoch();
+    store.createEffect({
+      id: 'effect-123',
+      type: 'plan-comment',
+      taskKey: 'PROJ-1',
+      jiraHost: 'test.atlassian.net',
+      payload: { issueKey: 'PROJ-1', body: 'hello', hash: 'hash' },
+    });
+
+    const claimRes = await request(app).post('/api/effects/effect-123/claim').send({ clientId: 'client-1' });
+    expect(claimRes.status).toBe(200);
+    expect(claimRes.body.claimedBy).toBe('client-1');
+
+    const ackRes = await request(app).post('/api/effects/effect-123/ack');
+    expect(ackRes.status).toBe(200);
+    expect(ackRes.body.acked).toBe(true);
+  });
+
+  it('treats acking a missing effect as an idempotent no-op', async () => {
+    const ackRes = await request(app).post('/api/effects/missing-effect/ack');
+    expect(ackRes.status).toBe(200);
+    expect(ackRes.body.acked).toBe(false);
   });
 });
 

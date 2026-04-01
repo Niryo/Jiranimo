@@ -91,6 +91,7 @@ section h2 {
 
 .task-card.status-queued { border-left: 3px solid #d29922; }
 .task-card.status-in-progress { border-left: 3px solid #58a6ff; }
+.task-card.status-interrupted { border-left: 3px solid #db6d28; }
 .task-card.status-completed { border-left: 3px solid #238636; }
 .task-card.status-failed { border-left: 3px solid #da3633; }
 

@@ -44,7 +44,6 @@ const FAKE_CLAUDE = `node ${resolve(import.meta.dirname, '..', 'fixtures', 'fake
 
 function makeConfig(reposRoot: string): ServerConfig {
   return {
-    reposRoot,
     claude: {
       maxBudgetUsd: 1.0,
       command: FAKE_CLAUDE,
@@ -63,7 +62,7 @@ function makeConfig(reposRoot: string): ServerConfig {
 async function startServer(config: ServerConfig): Promise<number> {
   stateDir = mkdtempSync(join(tmpdir(), 'jiranimo-e2e-state-'));
   store = new StateStore({ filePath: join(stateDir, 'state.json'), flushDelayMs: 0 });
-  pipeline = new PipelineManager(store, config);
+  pipeline = new PipelineManager(store, config, { kind: 'repo-root', reposRoot });
   const app = createApp(store, pipeline);
   httpServer = createServer(app);
   attachWebSocket(httpServer, pipeline);

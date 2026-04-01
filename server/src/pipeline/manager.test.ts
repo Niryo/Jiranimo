@@ -36,12 +36,13 @@ vi.mock('../claude/task-classifier.js', () => ({
 }));
 
 const testConfig: ServerConfig = {
-  reposRoot: '/tmp/repos',
   claude: { maxBudgetUsd: 2.0 },
   pipeline: { concurrency: 1 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },
   web: { port: 3456, host: '127.0.0.1' },
 };
+const repoRootTarget = { kind: 'repo-root' as const, reposRoot: '/tmp/repos' };
+const singleRepoTarget = { kind: 'single-repo' as const, repoPath: '/tmp/single-repo' };
 
 const sampleInput: TaskInput = {
   key: 'PROJ-1',
@@ -65,7 +66,7 @@ beforeEach(() => {
 
 describe('PipelineManager', () => {
   it('submits a task and sets status to queued', () => {
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     const task = mgr.submitTask(sampleInput);
     expect(task.status).toBe('queued');
     expect(task.key).toBe('PROJ-1');
@@ -73,7 +74,7 @@ describe('PipelineManager', () => {
   });
 
   it('emits task-created event on submit', () => {
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     const handler = vi.fn();
     mgr.on('task-created', handler);
     mgr.submitTask(sampleInput);
@@ -82,14 +83,14 @@ describe('PipelineManager', () => {
   });
 
   it('rejects duplicate task submission while queued or in-progress', () => {
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     mgr.submitTask(sampleInput);
     expect(() => mgr.submitTask(sampleInput)).toThrow('already');
     store.destroy();
   });
 
   it('allows resubmission of completed tasks', async () => {
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     mgr.submitTask(sampleInput);
 
     await new Promise(r => setTimeout(r, 100));
@@ -103,7 +104,7 @@ describe('PipelineManager', () => {
   });
 
   it('processes task through full lifecycle', async () => {
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     const statusChanges: string[] = [];
     mgr.on('task-status-changed', (task) => statusChanges.push(task.status));
 
@@ -126,7 +127,7 @@ describe('PipelineManager', () => {
       .mockResolvedValueOnce({ success: false, resultText: 'Error', durationMs: 100 })
       .mockResolvedValueOnce({ success: true, resultText: 'Done', sessionId: 's', costUsd: 0.1, durationMs: 100 });
 
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     mgr.submitTask(sampleInput);
 
     await new Promise(r => setTimeout(r, 200));
@@ -139,9 +140,122 @@ describe('PipelineManager', () => {
   });
 
   it('throws when retrying non-failed task', () => {
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     mgr.submitTask(sampleInput);
     expect(() => mgr.retryTask('PROJ-1')).toThrow('Invalid transition');
+    store.destroy();
+  });
+
+  it('recovers in-progress tasks as interrupted resume candidates on startup', () => {
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-RECOVER',
+      summary: 'Resume me',
+      description: 'Resume me',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-RECOVER',
+      status: 'in-progress',
+      claudeSessionId: 'sess-123',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    const task = store.getTask('PROJ-RECOVER');
+
+    expect(task?.status).toBe('interrupted');
+    expect(task?.recoveryState).toBe('resume-pending');
+    expect(task?.resumeMode).toBe('claude-session');
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('cancelResume prevents automatic resume from remaining scheduled', () => {
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-CANCEL',
+      summary: 'Cancel resume',
+      description: 'Cancel resume',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-CANCEL',
+      status: 'interrupted',
+      recoveryState: 'resume-pending',
+      resumeAfter: new Date(Date.now() + 30_000).toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    const updated = mgr.cancelResume('PROJ-CANCEL');
+
+    expect(updated.recoveryState).toBe('resume-cancelled');
+    expect(updated.resumeAfter).toBeUndefined();
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('uses Claude session resume when manually resuming an interrupted task with a session id', async () => {
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-SESSION',
+      summary: 'Resume with session',
+      description: 'Resume with session',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-SESSION',
+      status: 'interrupted',
+      recoveryState: 'resume-cancelled',
+      claudeSessionId: 'sess-abc',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    mgr.resumeTask('PROJ-SESSION');
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(vi.mocked(executeClaudeCode).mock.calls.at(-1)?.[0].resumeSessionId).toBe('sess-abc');
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('falls back to fresh recovery when manually resuming without a session id', async () => {
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-FRESH',
+      summary: 'Resume fresh',
+      description: 'Resume fresh',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-FRESH',
+      status: 'interrupted',
+      recoveryState: 'resume-cancelled',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    mgr.resumeTask('PROJ-FRESH');
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(vi.mocked(executeClaudeCode).mock.calls.at(-1)?.[0].resumeSessionId).toBeUndefined();
+    mgr.shutdown();
     store.destroy();
   });
 
@@ -157,14 +271,14 @@ describe('PipelineManager', () => {
     });
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     mgr.submitTask(sampleInput);
 
     await new Promise(r => setTimeout(r, 200));
 
     const sessionLogs = consoleSpy.mock.calls
       .map(args => args[0] as string)
-      .filter(msg => typeof msg === 'string' && msg.includes('[CLAUDE] Session started:'));
+      .filter(msg => typeof msg === 'string' && msg.includes('Claude session started') && msg.includes('sess-abc'));
 
     expect(sessionLogs).toHaveLength(1);
     consoleSpy.mockRestore();
@@ -172,7 +286,7 @@ describe('PipelineManager', () => {
   });
 
   it('reportProgress emits task-output event', () => {
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     const handler = vi.fn();
     mgr.on('task-output', handler);
     mgr.reportProgress('PROJ-1', 'Running tests...');
@@ -181,7 +295,7 @@ describe('PipelineManager', () => {
   });
 
   it('reportPr stores PR info in task state', () => {
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     mgr.submitTask(sampleInput);
     mgr.reportPr('PROJ-1', 'https://github.com/org/repo/pull/42', 42, 'jiranimo/PROJ-1-feature');
     const task = store.getTask('PROJ-1');
@@ -192,7 +306,7 @@ describe('PipelineManager', () => {
   });
 
   it('completeViaAgent transitions in-progress task to completed with summary', () => {
-    const mgr = new PipelineManager(store, testConfig);
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
     // Directly set a task as in-progress to test the method in isolation
     store.upsertTask({
       key: 'PROJ-1', summary: 'Test', description: 'Test',
@@ -206,6 +320,35 @@ describe('PipelineManager', () => {
     const task = store.getTask('PROJ-1');
     expect(task?.status).toBe('completed');
     expect(task?.claudeResultText).toBe('Implemented and PR created');
+    store.destroy();
+  });
+
+  it('uses the single repo target directly without repo picker', async () => {
+    const { pickRepo } = await import('../repo-picker.js');
+    const singleRepoInput = { ...sampleInput, key: 'PROJ-SINGLE' };
+    const mgr = new PipelineManager(store, testConfig, singleRepoTarget);
+    mgr.submitTask(singleRepoInput);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(vi.mocked(pickRepo)).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ key: 'PROJ-SINGLE' }),
+    );
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('uses the repo-root target with repo picker', async () => {
+    const { pickRepo } = await import('../repo-picker.js');
+    const repoRootInput = { ...sampleInput, key: 'PROJ-ROOT' };
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    mgr.submitTask(repoRootInput);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(vi.mocked(pickRepo)).toHaveBeenCalledWith('/tmp/repos', expect.objectContaining({ key: 'PROJ-ROOT' }));
+    mgr.shutdown();
     store.destroy();
   });
 });

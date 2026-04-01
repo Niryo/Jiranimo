@@ -10,16 +10,48 @@ interface ScreenshotContext {
   branchName: string;
 }
 
+interface RecoveryContext {
+  wasInterrupted: boolean;
+  resumeMode: 'claude-session' | 'fresh-recovery';
+  worktreePath?: string;
+  workspacePath?: string;
+  branchName?: string;
+  prUrl?: string;
+  logPath?: string;
+}
+
 export function buildPrompt(
   task: TaskInput,
   config: ServerConfig,
   repoPath: string,
   mode: TaskMode = 'implement',
   screenshotContext?: ScreenshotContext,
+  recoveryContext?: RecoveryContext,
 ): string {
   const { branchPrefix, defaultBaseBranch, pushRemote, createDraftPr } = config.git;
   const taskJson = JSON.stringify(task, null, 2);
   const appendSection = config.claude.appendSystemPrompt ? `\n\n${config.claude.appendSystemPrompt}` : '';
+  const worktreePath = recoveryContext?.worktreePath ?? `/tmp/jiranimo-${task.key}`;
+  const recoverySection = recoveryContext?.wasInterrupted
+    ? `
+
+### Recovery Context
+- The previous run was interrupted and you are resuming work.
+- Resume mode: \`${recoveryContext.resumeMode}\`
+- Worktree path: \`${worktreePath}\`
+- Claude workspace path: \`${recoveryContext.workspacePath ?? 'unknown'}\`
+- Previous branch: \`${recoveryContext.branchName ?? 'unknown'}\`
+- Existing PR: ${recoveryContext.prUrl ?? 'none'}
+- Previous log path: \`${recoveryContext.logPath ?? 'unknown'}\`
+
+Before making any further changes, inspect the current repo state carefully:
+- Run \`git -C ${worktreePath} status\`
+- Review changed files and diffs
+- Inspect recent commits if any exist
+- Review the existing PR if one already exists
+- Use the restored Claude conversation history if available, but still verify the filesystem before acting
+`
+    : '';
 
   if (mode === 'screenshot' && screenshotContext) {
     const { prUrl, prNumber, branchName } = screenshotContext;
@@ -38,8 +70,8 @@ The Jira comments in the task above contain instructions on how to screenshot th
 
 **Step 1 - Check out the branch** (read-only, no new commits needed):
 \`\`\`
-git -C ${repoPath} worktree add /tmp/jiranimo-${task.key} ${branchName}
-cd /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree add ${worktreePath} ${branchName}
+cd ${worktreePath}
 \`\`\`
 
 **Step 2 - Take the screenshot** following the instructions in the Jira comments.
@@ -62,7 +94,7 @@ data:image/png;base64,\${SCREENSHOT_B64}"
 
 **Clean up the worktree**:
 \`\`\`
-git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree remove ${worktreePath}
 \`\`\`${appendSection}`;
   }
 
@@ -80,8 +112,8 @@ The repository is at: \`${repoPath}\`
 
 **Step 1 - Create a worktree** for exploration:
 \`\`\`
-git -C ${repoPath} worktree add /tmp/jiranimo-${task.key} -b ${branchPrefix}${task.key}-plan origin/${defaultBaseBranch}
-cd /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree add ${worktreePath} -b ${branchPrefix}${task.key}-plan origin/${defaultBaseBranch}
+cd ${worktreePath}
 \`\`\`
 If \`origin/${defaultBaseBranch}\` does not exist, detect the actual default branch first:
 \`git -C ${repoPath} remote show ${pushRemote} | grep 'HEAD branch'\`
@@ -95,7 +127,7 @@ If \`origin/${defaultBaseBranch}\` does not exist, detect the actual default bra
 
 **Clean up the worktree**:
 \`\`\`
-git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree remove ${worktreePath}
 \`\`\`${appendSection}`;
   }
 
@@ -105,6 +137,7 @@ git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
 \`\`\`json
 ${taskJson}
 \`\`\`
+${recoverySection}
 
 ### Your Workspace & Git Instructions
 
@@ -112,8 +145,10 @@ The repository you should work on is at: \`${repoPath}\`
 
 **Step 1 - Create a worktree** for isolation:
 \`\`\`
-git -C ${repoPath} worktree add /tmp/jiranimo-${task.key} -b ${branchPrefix}${task.key}-<short-slug> origin/${defaultBaseBranch}
-cd /tmp/jiranimo-${task.key}
+if [ ! -d "${worktreePath}" ]; then
+  git -C ${repoPath} worktree add ${worktreePath} -b ${branchPrefix}${task.key}-<short-slug> origin/${defaultBaseBranch}
+fi
+cd ${worktreePath}
 \`\`\`
 If \`origin/${defaultBaseBranch}\` does not exist, detect the actual default branch first:
 \`git -C ${repoPath} remote show ${pushRemote} | grep 'HEAD branch'\`
@@ -133,16 +168,18 @@ If your implementation touches any UI files (HTML, CSS, frontend JS, browser ext
 
 Think of yourself as a developer who just finished implementing this feature and wants to show it working. How would you demo it to a colleague? Do that — use the real app, the real dev server, the real test suite.
 
-**How to get the screenshot:**
-1. **Run existing E2E/integration tests.** Check the project's test directory for Playwright or similar tests that exercise the UI you changed. Run them — if they save screenshots to disk, copy the result to \`/tmp/jiranimo-${task.key}-screenshot.png\`.
-2. **Start the dev server and capture it.** If no test screenshots exist, start the app with its standard dev command (check \`package.json\` scripts), then use the \`browser_screenshot\` MCP tool or \`npx playwright screenshot --viewport-size "1280,720" <url> /tmp/jiranimo-${task.key}-screenshot.png\`.
+**How to get the screenshot — you MUST try both before giving up:**
+1. **Run existing E2E/integration tests.** Look in the project's test directories for Playwright or similar tests that exercise the UI you changed. Actually run them — don't assume they're broken or excluded. If they save screenshots to disk, copy the result to \`/tmp/jiranimo-${task.key}-screenshot.png\`. For browser extensions specifically, E2E tests that load the extension in a real Chromium are the correct path and likely the only one available.
+2. **Start the app and capture it.** If no E2E tests exist, start the app with its standard dev command (check \`package.json\` scripts), then use the \`browser_screenshot\` MCP tool or \`npx playwright screenshot --viewport-size "1280,720" <url> /tmp/jiranimo-${task.key}-screenshot.png\`.
 
 Ask yourself: how would a developer on this project run and view the feature they just built? Do exactly that, then take the screenshot.
 
 **Non-negotiable rules:**
 - Screenshot the REAL running feature. Never create a throwaway demo/mock HTML file just to screenshot it — that is not evidence the feature works, and it's not how a real developer would do it.
-- After taking the screenshot, ask yourself again to make sure- is this really how a developer would capture their work to show a teammate? If not, adjust your approach until it is.
-If you genuinely cannot screenshot the real app after trying all three approaches, call \`jiranimo_screenshot_failed\` with a \`reason\`.
+- Do not give up after a brief look. Actually attempt to run the tests or start the app before concluding it's impossible.
+- After taking the screenshot, verify it's correct and actually shows the feature working. Print to stdout what you actually see on the screenshot.
+
+Call \`jiranimo_screenshot_failed\` only if you genuinely tried both approaches and both failed — and explain exactly what commands you ran and what errors you got.
 
 If your changes are server-only, skip this step.
 
@@ -165,6 +202,6 @@ Run \`gh pr view --json body --jq '.body'\` and confirm it contains the screensh
 
 **Clean up the worktree**:
 \`\`\`
-git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree remove ${worktreePath}
 \`\`\`${appendSection}`;
 }

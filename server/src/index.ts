@@ -1,84 +1,55 @@
 import { createServer } from 'node:http';
-import { resolve, isAbsolute } from 'node:path';
-import { watch } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { watch, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config/loader.js';
-import { configExists, runSetup } from './config/setup.js';
 import { StateStore } from './state/store.js';
 import { PipelineManager } from './pipeline/manager.js';
 import { createApp } from './web/server.js';
 import { attachWebSocket } from './web/ws-handler.js';
+import { resolveStartupPath, resolveRepoTarget } from './runtime-target.js';
+import { createLogger } from './logging/logger.js';
 
-const DEV_MODE = process.env.JIRANIMO_MODE === 'development';
-const SELF_MODE = DEV_MODE && process.env.JIRANIMO_SELF === '1';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const EXTENSION_DIR = resolve(__dirname, '..', '..', 'extension');
 
 async function main() {
-  if (DEV_MODE) {
-    console.log(`\n[DEV] Running in development mode${SELF_MODE ? ' (self)' : ''}\n`);
-  }
+  const config = loadConfig();
+  const logger = createLogger(config, 'server');
+  const targetPath = resolveStartupPath();
+  const repoTarget = resolveRepoTarget(targetPath);
 
-  // Load config — dev uses local file, prod uses global
-  let config;
-  if (DEV_MODE) {
-    const devConfigPath = resolve(process.cwd(), 'jiranimo.dev.config.json');
-    config = loadConfig({ configPath: devConfigPath });
-    // Self mode: point reposRoot at the parent directory (contains the Jiranimo repo itself)
-    if (SELF_MODE) {
-      config = { ...config, reposRoot: resolve(process.cwd(), '..'), repoName: 'Jiranimo' };
-    } else if (!isAbsolute(config.reposRoot)) {
-      // Resolve relative reposRoot against cwd
-      config = { ...config, reposRoot: resolve(process.cwd(), config.reposRoot) };
-    }
-    // Set dev-local paths (self mode gets its own state to avoid conflicts)
-    const statePrefix = SELF_MODE ? '.dev-self' : '.dev';
-    config.statePath = config.statePath ?? resolve(process.cwd(), `${statePrefix}-state.json`);
-    config.logsDir = config.logsDir ?? resolve(process.cwd(), `${statePrefix}-logs`);
-  } else {
-    if (!configExists()) {
-      await runSetup();
-    }
-    config = loadConfig();
-  }
-
-  // State — dev uses local file, prod uses global default
   const store = new StateStore(config.statePath ? { filePath: config.statePath } : undefined);
-  const pipeline = new PipelineManager(store, config);
+  const meta = store.beginServerEpoch();
+  store.flushSync();
+  const pipeline = new PipelineManager(store, config, repoTarget);
 
-  const app = createApp(store, pipeline);
+  const app = createApp(store, pipeline, config);
   const server = createServer(app);
   const wsHandler = attachWebSocket(server, pipeline);
 
-  // In dev mode, watch extension files and broadcast reload signal
-  if (DEV_MODE) {
-    startExtensionWatcher(wsHandler);
-  }
+  const extensionReloadEnabled = startExtensionWatcher(wsHandler, logger.child('extension'));
 
   server.listen(config.web.port, config.web.host, () => {
-    console.log(`Jiranimo server running on http://${config.web.host}:${config.web.port}`);
-    console.log(`Dashboard: http://${config.web.host}:${config.web.port}`);
-    console.log(`Repos root: ${config.reposRoot}`);
-    console.log(`MCP endpoint: http://${config.web.host}:${config.web.port}/mcp`);
-
-    if (DEV_MODE) {
-      console.log(`\n[DEV] Config: ${resolve(process.cwd(), 'jiranimo.dev.config.json')}`);
-      console.log(`[DEV] State: ${config.statePath}`);
-      console.log(`[DEV] Logs: ${config.logsDir}`);
-      console.log(`[DEV] Extension auto-reload: enabled`);
-    } else {
-      const extensionPath = resolve(process.cwd(), '..', 'extension');
-      console.log(`\nTo install the Chrome extension:`);
-      console.log(`  1. Open chrome://extensions`);
-      console.log(`  2. Enable "Developer mode" (top right)`);
-      console.log(`  3. Click "Load unpacked"`);
-      console.log(`  4. Select: ${extensionPath}`);
-    }
-    console.log('');
+    logger.info('Server listening', {
+      url: `http://${config.web.host}:${config.web.port}`,
+      dashboardUrl: `http://${config.web.host}:${config.web.port}`,
+      mcpUrl: `http://${config.web.host}:${config.web.port}/mcp`,
+      targetPath,
+      targetMode: repoTarget.kind === 'single-repo' ? 'single-repo' : 'repo-root',
+      statePath: config.statePath ?? 'default (~/.jiranimo/state.json)',
+      logsDir: config.logsDir ?? 'default (~/.jiranimo/logs)',
+      extensionAutoReload: extensionReloadEnabled,
+      serverEpoch: meta.serverEpoch,
+    });
   });
 
   let shuttingDown = false;
   function shutdown() {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log('\nShutting down...');
+    logger.info('Shutting down');
+    pipeline.shutdown();
     store.flushSync();
     store.destroy();
     server.close(() => process.exit(0));
@@ -89,24 +60,31 @@ async function main() {
   process.on('SIGTERM', shutdown);
 }
 
-function startExtensionWatcher(wsHandler: ReturnType<typeof attachWebSocket>) {
-  const extensionDir = resolve(process.cwd(), '..', 'extension');
+function startExtensionWatcher(wsHandler: ReturnType<typeof attachWebSocket>, logger = createLogger(undefined, 'server:extension')): boolean {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  if (!existsSync(EXTENSION_DIR)) {
+    return false;
+  }
+
   try {
-    watch(extensionDir, { recursive: true }, (_event, filename) => {
+    watch(EXTENSION_DIR, { recursive: true }, (_event, filename) => {
       if (!filename || filename.includes('node_modules')) return;
-      // Debounce — wait 500ms for batch changes
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        console.log(`[DEV] Extension file changed: ${filename}`);
+        logger.info('Extension file changed', { filename });
         wsHandler.send({ type: 'extension-reload' });
       }, 500);
     });
-    console.log(`[DEV] Watching extension/ for changes`);
+    logger.info('Watching extension directory', { path: EXTENSION_DIR });
+    return true;
   } catch (err) {
-    console.warn(`[DEV] Could not watch extension directory:`, err);
+    logger.warn('Could not watch extension directory', { error: (err as Error).message });
+    return false;
   }
 }
 
-main();
+main().catch((err) => {
+  createLogger(undefined, 'server').error('Startup failed', { error: (err as Error).message });
+  process.exit(1);
+});
