@@ -70,16 +70,16 @@ class AppLogger implements Logger {
   }
 
   private write(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
+    if (!this.isConsoleLevelEnabled(level)) {
+      return;
+    }
+
     const line = formatLogLine(level, this.scope, message, meta);
 
     try {
       appendFileSync(this.filePath, `${line}\n`, 'utf-8');
     } catch {
       // Keep the app running even if the log file is unavailable.
-    }
-
-    if (!this.isConsoleLevelEnabled(level)) {
-      return;
     }
 
     if (level === 'error') {

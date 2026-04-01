@@ -68,10 +68,13 @@ export function createApp(store: StateStore, pipeline: PipelineManager, config?:
   return app;
 }
 
-function shouldSkipHttpLog(method: string, path: string): boolean {
+export function shouldSkipHttpLog(method: string, path: string): boolean {
   if (path === '/mcp') return true;
   if (!path.startsWith('/api')) return true;
-  return method === 'GET' && (path === '/api/tasks' || path === '/api/sync');
+  if (method === 'GET' && (path === '/api/tasks' || path === '/api/sync')) return true;
+  if (method === 'GET' && /^\/api\/tasks\/[^/]+$/.test(path)) return true;
+  if (/^\/api\/effects\/[^/]+\/(claim|ack)$/.test(path)) return true;
+  return false;
 }
 
 function hasBody(body: unknown): boolean {

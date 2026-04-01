@@ -1,7 +1,7 @@
 /**
  * Jiranimo content script.
  * Runs on Jira sprint board pages.
- * Detects cards with the trigger label (via Jira API) and injects "Implement" badges.
+ * Detects visible Jira cards in the DOM and injects "Implement" badges.
  * Polls the local server for task status updates.
  */
 
@@ -26,6 +26,16 @@
   const BADGE_ATTR = 'data-jiranimo';
   const SCAN_DEBOUNCE = 500;
   const WS_RECONNECT_DELAY = 3000;
+  const CARD_SELECTOR = '[data-testid="platform-board-kit.ui.card.card"]';
+  const CARD_CONTENT_SELECTOR = [
+    CARD_SELECTOR,
+    '[data-testid="platform-card.common.ui.key.key"]',
+    '.card-key',
+    '[data-component-selector="issue-field-summary-inline-edit.ui.read.static-summary"]',
+    '.card-summary',
+  ].join(', ');
+  const ISSUE_KEY_PATTERN = /\b[A-Z][A-Z0-9]+-\d+\b/;
+  const CARD_ID_PREFIX = 'card-';
   const SPARKLES_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5zM18 1.5a.75.75 0 01.728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 010 1.456l-1.036.258c-.94.236-1.674.97-1.91 1.91l-.258 1.036a.75.75 0 01-1.456 0l-.258-1.036a2.625 2.625 0 00-1.91-1.91l-1.036-.258a.75.75 0 010-1.456l1.036-.258a2.625 2.625 0 001.91-1.91l.258-1.036A.75.75 0 0118 1.5zM16.5 15a.75.75 0 01.712.513l.394 1.183c.15.447.5.799.948.948l1.183.395a.75.75 0 010 1.422l-1.183.395c-.447.15-.799.5-.948.948l-.395 1.183a.75.75 0 01-1.422 0l-.395-1.183a1.5 1.5 0 00-.948-.948l-1.183-.395a.75.75 0 010-1.422l1.183-.395c.447-.15.799-.5.948-.948l.395-1.183A.75.75 0 0116.5 15z" clip-rule="evenodd"/></svg>';
 
   /** @type {Record<string, string>} taskKey -> status */
@@ -51,8 +61,6 @@
   let scanTimer = null;
   /** @type {string|null} */
   let currentBoardId = null;
-  /** @type {Array<{key: string, summary: string, labels: string[]}>|null} */
-  let cachedSprintIssues = null;
 
   async function init() {
     log('Content script loaded on', location.href);
@@ -105,63 +113,66 @@
     scanTimer = setTimeout(() => scanCards(), SCAN_DEBOUNCE);
   }
 
-  async function scanCards() {
-    if (!cachedSprintIssues) {
-      cachedSprintIssues = await fetchSprintIssues();
-    }
-    if (!cachedSprintIssues) {
-      log('No sprint issues found');
-      return;
-    }
-    log(`Scanning ${cachedSprintIssues.length} sprint issues`);
+  function scanCards() {
+    const cards = document.querySelectorAll(CARD_SELECTOR);
+    log(`Scanning ${cards.length} visible cards`);
 
-    const triggerLabel = boardConfig?.triggerLabel;
     let injected = 0;
-    for (const issue of cachedSprintIssues) {
-      const key = issue.key;
-      if (triggerLabel && !issue.labels.includes(triggerLabel)) continue;
-      if (document.querySelector(`[${BADGE_ATTR}="${key}"]`)) continue;
-      const titleEl = findIssueTitleElement(key);
-      if (!titleEl) continue;
-      injectBadge(titleEl, key);
-      injected++;
+    for (const card of cards) {
+      const issueKey = extractIssueKeyFromCard(card);
+      if (!issueKey) continue;
+      if (card.querySelector(`[${BADGE_ATTR}]`)) continue;
+      if (injectBadge(card, issueKey)) {
+        injected++;
+      }
     }
     log(`Injected ${injected} badges`);
   }
 
-  async function fetchSprintIssues() {
-    try {
-      const sprintRes = await fetch(
-        `${location.origin}/rest/agile/1.0/board/${currentBoardId}/sprint?state=active`,
-        { credentials: 'include' }
-      );
-      if (!sprintRes.ok) { warn('Failed to fetch active sprint:', sprintRes.status); return null; }
-      const sprintData = await sprintRes.json();
-      const sprint = sprintData.values?.[0];
-      if (!sprint) { warn('No active sprint found'); return null; }
-      log('Active sprint:', sprint.name);
-
-      const issueRes = await fetch(
-        `${location.origin}/rest/agile/1.0/sprint/${sprint.id}/issue?fields=summary,labels&maxResults=200`,
-        { credentials: 'include' }
-      );
-      if (!issueRes.ok) { warn('Failed to fetch sprint issues:', issueRes.status); return null; }
-      const issueData = await issueRes.json();
-      return (issueData.issues || []).map(i => ({ key: i.key, summary: i.fields.summary, labels: i.fields.labels || [] }));
-    } catch (err) {
-      warn('fetchSprintIssues error:', err);
-      return null;
+  function extractIssueKeyFromCard(card) {
+    const cardId = card.getAttribute('id')?.trim();
+    if (cardId?.startsWith(CARD_ID_PREFIX)) {
+      const keyFromId = cardId.slice(CARD_ID_PREFIX.length);
+      if (ISSUE_KEY_PATTERN.test(keyFromId)) return keyFromId;
     }
+
+    const draggableId = card.getAttribute('data-rbd-draggable-id')?.trim();
+    if (draggableId && ISSUE_KEY_PATTERN.test(draggableId)) {
+      return draggableId;
+    }
+
+    const browseLink = card.querySelector('a[href*="/browse/"]');
+    const href = browseLink?.getAttribute('href') || '';
+    const hrefMatch = href.match(/\/browse\/([A-Z][A-Z0-9]+-\d+)/);
+    if (hrefMatch) return hrefMatch[1];
+
+    const keyText = card.querySelector('[data-testid="platform-card.common.ui.key.key"], .card-key')?.textContent?.trim();
+    if (!keyText) return null;
+    const textMatch = keyText.match(ISSUE_KEY_PATTERN);
+    return textMatch ? textMatch[0] : null;
   }
 
-  function findIssueTitleElement(issueKey) {
-    for (const el of document.querySelectorAll('div, a, span')) {
-      if (el.childElementCount === 0 && el.textContent.trim() === issueKey) {
-        log(`findIssueTitleElement: found key element for ${issueKey}`);
-        return el;
+  function findIssueSummaryElement(card) {
+    if (!card) return null;
+    return card.querySelector(
+      '[data-component-selector="issue-field-summary-inline-edit.ui.read.static-summary"], .card-summary'
+    );
+  }
+
+  function findBadgeHost(card) {
+    return (
+      card.querySelector('[data-testid="platform-card.common.ui.key.key"]') ||
+      card.querySelector('.card-key') ||
+      findIssueSummaryElement(card)
+    );
+  }
+
+  function findCardByIssueKey(issueKey) {
+    for (const card of document.querySelectorAll(CARD_SELECTOR)) {
+      if (extractIssueKeyFromCard(card) === issueKey) {
+        return card;
       }
     }
-    log(`findIssueTitleElement: no element found for ${issueKey}`);
     return null;
   }
 
@@ -231,15 +242,15 @@
   }
 
   function buildFallbackIssueDetails(issueKey) {
-    const issue = (cachedSprintIssues || []).find(i => i.key === issueKey);
-    if (!issue) return null;
+    const card = findCardByIssueKey(issueKey);
+    const summary = findIssueSummaryElement(card)?.textContent?.trim() || issueKey;
     return {
       key: issueKey,
-      summary: issue.summary || issueKey,
-      description: issue.summary || issueKey,
+      summary,
+      description: summary,
       priority: 'Medium',
       issueType: 'Task',
-      labels: issue.labels || [],
+      labels: [],
       comments: [],
       subtasks: [],
       linkedIssues: [],
@@ -358,7 +369,13 @@
     return '';
   }
 
-  function injectBadge(titleEl, issueKey) {
+  function injectBadge(card, issueKey) {
+    const host = findBadgeHost(card);
+    if (!host) {
+      log(`injectBadge: no host found for ${issueKey}`);
+      return false;
+    }
+
     const icon = document.createElement('span');
     icon.setAttribute(BADGE_ATTR, issueKey);
     icon.className = 'jiranimo-icon idle';
@@ -376,12 +393,13 @@
       handleBadgeClick(icon, issueKey);
     });
 
-    const wrapper = document.createElement('span');
-    wrapper.style.cssText = 'display: inline-flex; align-items: center; flex-direction: row; direction: ltr;';
-    titleEl.parentNode.insertBefore(wrapper, titleEl);
-    wrapper.appendChild(titleEl);
-    wrapper.appendChild(icon);
+    const slot = document.createElement('span');
+    slot.className = 'jiranimo-badge-slot';
+    slot.appendChild(icon);
+
+    host.insertAdjacentElement('afterend', slot);
     log(`Icon injected for ${issueKey}`);
+    return true;
   }
 
   function setBadgeState(icon, issueKey, status, titleOverride) {
@@ -574,8 +592,16 @@
   }
 
   function observeCardChanges() {
-    const observer = new MutationObserver(() => {
-      debouncedScan();
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
+          if (!(node instanceof Element)) continue;
+          if (node.matches(CARD_CONTENT_SELECTOR) || node.querySelector(CARD_CONTENT_SELECTOR)) {
+            debouncedScan();
+            return;
+          }
+        }
+      }
     });
     observer.observe(document.body, { childList: true, subtree: true });
     log('MutationObserver attached');

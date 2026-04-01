@@ -1,3 +1,9 @@
+.jiranimo-badge-slot {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 .jiranimo-icon {
   display: inline-flex;
   align-items: center;
