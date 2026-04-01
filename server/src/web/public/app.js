@@ -96,12 +96,124 @@ function taskCard(task) {
     }
   }
 
+  // Show conversation log button for tasks that have been started
+  const hasLogs = ['in-progress', 'interrupted', 'completed', 'failed'].includes(task.status);
+  if (hasLogs) {
+    extra += `<button class="btn btn-log" onclick="openConvLog('${task.key}', '${escapeHtml(task.key)} — ${escapeHtml(task.summary).replace(/'/g, '&#39;')}')">View Log</button>`;
+  }
+
   return `
     <div class="task-card status-${task.status}">
       <div class="task-key">${escapeHtml(task.key)}</div>
       <div class="task-summary">${escapeHtml(task.summary)}</div>
       <div class="task-meta">${meta}</div>
       ${extra}
+    </div>
+  `;
+}
+
+// ── Conversation Log Modal ────────────────────────────────
+
+async function openConvLog(key, title) {
+  const modal = document.getElementById('conv-modal');
+  const body = document.getElementById('conv-modal-body');
+  document.getElementById('conv-modal-title').textContent = title;
+  body.innerHTML = '<div class="conv-loading">Loading conversation…</div>';
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tasks/${key}/logs`);
+    if (!res.ok) throw new Error(res.status === 404 ? 'No logs available for this task yet.' : `HTTP ${res.status}`);
+    const text = await res.text();
+    body.innerHTML = renderConvLog(text);
+    // Scroll to bottom so latest messages are visible
+    body.scrollTop = body.scrollHeight;
+  } catch (err) {
+    body.innerHTML = `<div class="conv-loading">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function closeConvModal(event) {
+  // Close when clicking the overlay background or the close button
+  if (event && event.target !== document.getElementById('conv-modal') && !event.target.classList.contains('modal-close')) return;
+  document.getElementById('conv-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+// Close on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('conv-modal');
+    if (modal && modal.style.display !== 'none') closeConvModal({ target: modal });
+  }
+});
+
+function renderConvLog(rawText) {
+  const lines = rawText.split('\n').filter(l => l.trim());
+  if (!lines.length) return '<div class="conv-loading">Log is empty.</div>';
+
+  const entries = [];
+
+  for (const line of lines) {
+    let event;
+    try { event = JSON.parse(line); } catch { continue; }
+
+    switch (event.type) {
+      case 'system': {
+        const sessionId = event.session_id || event.sessionId || '';
+        entries.push(convEntry('system', 'System', `Session started${sessionId ? ` · ${sessionId}` : ''}`));
+        break;
+      }
+      case 'assistant': {
+        const msg = event.message || event;
+        const contentBlocks = msg.content || [];
+        for (const block of contentBlocks) {
+          if (block.type === 'text' && block.text) {
+            entries.push(convEntry('assistant', 'Claude', block.text));
+          } else if (block.type === 'tool_use') {
+            const inputStr = block.input != null ? JSON.stringify(block.input, null, 2) : '';
+            entries.push(convEntry('tool-use', `Tool: ${block.name}`, inputStr));
+          }
+        }
+        break;
+      }
+      case 'user': {
+        const msg = event.message || event;
+        const contentBlocks = Array.isArray(msg.content) ? msg.content : [];
+        for (const block of contentBlocks) {
+          if (block.type === 'tool_result') {
+            const content = Array.isArray(block.content)
+              ? block.content.map(c => c.text || '').join('\n')
+              : (typeof block.content === 'string' ? block.content : '');
+            entries.push(convEntry('tool-result', 'Tool Result', content));
+          } else if (block.type === 'text' && block.text) {
+            entries.push(convEntry('user', 'User', block.text));
+          }
+        }
+        break;
+      }
+      case 'result': {
+        const subtype = event.subtype || 'unknown';
+        const cost = typeof event.cost_usd === 'number' ? ` · $${event.cost_usd.toFixed(4)}` : '';
+        const resultText = event.result ? `\n\n${event.result}` : '';
+        const cls = subtype === 'success' ? 'conv-result-success' : subtype === 'error_during_execution' ? 'conv-result-failure' : '';
+        entries.push(convEntry('result', `Result: ${subtype}${cost}`, resultText.trim(), cls));
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return entries.length ? entries.join('') : '<div class="conv-loading">No conversation entries found in log.</div>';
+}
+
+function convEntry(type, role, text, extraClass = '') {
+  return `
+    <div class="conv-entry conv-${type}${extraClass ? ' ' + extraClass : ''}">
+      <div class="conv-role">${escapeHtml(role)}</div>
+      <div class="conv-text">${escapeHtml(text)}</div>
     </div>
   `;
 }

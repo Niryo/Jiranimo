@@ -42,6 +42,17 @@
     </section>
   </main>
 
+  <!-- Conversation Log Modal -->
+  <div id="conv-modal" class="modal-overlay" style="display:none" onclick="closeConvModal(event)">
+    <div class="modal">
+      <div class="modal-header">
+        <span id="conv-modal-title">Conversation Log</span>
+        <button class="modal-close" onclick="closeConvModal()">✕</button>
+      </div>
+      <div id="conv-modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
