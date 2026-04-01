@@ -129,4 +129,45 @@ describe('StateStore', () => {
     expect(store.getAllTasks()).toEqual([]);
     store.destroy();
   });
+
+  it('increments server epoch on boot and resets claimed effects', () => {
+    const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
+    store.createEffect({
+      id: 'effect-1',
+      type: 'pipeline-status-sync',
+      taskKey: 'PROJ-1',
+      jiraHost: 'test.atlassian.net',
+      payload: { issueKey: 'PROJ-1', pipelineStatus: 'in-progress' },
+      status: 'claimed',
+      claimedBy: 'client-1',
+      claimEpoch: 1,
+      claimExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const meta = store.beginServerEpoch();
+    const effect = store.getEffect('effect-1');
+    expect(meta.serverEpoch).toBe(1);
+    expect(effect?.status).toBe('pending');
+    expect(effect?.claimedBy).toBeUndefined();
+    store.destroy();
+  });
+
+  it('claims and acknowledges effects', () => {
+    const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
+    store.beginServerEpoch();
+    store.createEffect({
+      id: 'effect-2',
+      type: 'plan-comment',
+      taskKey: 'PROJ-2',
+      jiraHost: 'test.atlassian.net',
+      payload: { issueKey: 'PROJ-2', body: 'Plan', hash: 'hash' },
+    });
+
+    const claimed = store.claimEffect('effect-2', 'client-2', 10_000);
+    expect(claimed.status).toBe('claimed');
+    expect(claimed.claimedBy).toBe('client-2');
+    expect(store.ackEffect('effect-2')).toBe(true);
+    expect(store.getEffect('effect-2')).toBeUndefined();
+    store.destroy();
+  });
 });

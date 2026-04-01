@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs';
 import type { PipelineManager } from '../pipeline/manager.js';
 import type { StateStore } from '../state/store.js';
 
+function param(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] : (value ?? '');
+}
+
 export function createApiRouter(store: StateStore, pipeline: PipelineManager): Router {
   const router = Router();
 
@@ -51,11 +55,17 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
     res.json(tasks);
   });
 
+  router.get('/sync', (req: Request, res: Response) => {
+    const jiraHost = typeof req.query.jiraHost === 'string' ? req.query.jiraHost : undefined;
+    res.json(pipeline.getSyncSnapshot(jiraHost));
+  });
+
   // GET /api/tasks/:key — get single task
   router.get('/tasks/:key', (req: Request, res: Response) => {
-    const task = store.getTask(req.params.key);
+    const key = param(req.params.key);
+    const task = store.getTask(key);
     if (!task) {
-      res.status(404).json({ error: `Task ${req.params.key} not found` });
+      res.status(404).json({ error: `Task ${key} not found` });
       return;
     }
     res.json(task);
@@ -63,8 +73,37 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
 
   // POST /api/tasks/:key/retry — retry a failed task
   router.post('/tasks/:key/retry', (req: Request, res: Response) => {
+    const key = param(req.params.key);
     try {
-      const task = pipeline.retryTask(req.params.key);
+      const task = pipeline.retryTask(key);
+      res.json(task);
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(400).json({ error: message });
+      }
+    }
+  });
+
+  router.post('/tasks/:key/cancel-resume', (req: Request, res: Response) => {
+    try {
+      const task = pipeline.cancelResume(param(req.params.key));
+      res.json(task);
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(400).json({ error: message });
+      }
+    }
+  });
+
+  router.post('/tasks/:key/resume', (req: Request, res: Response) => {
+    try {
+      const task = pipeline.resumeTask(param(req.params.key));
       res.json(task);
     } catch (err) {
       const message = (err as Error).message;
@@ -78,19 +117,45 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
 
   // DELETE /api/tasks/:key — remove a task (e.g. when moved back to To Do in Jira)
   router.delete('/tasks/:key', (req: Request, res: Response) => {
-    const deleted = store.deleteTask(req.params.key);
+    const key = param(req.params.key);
+    const deleted = pipeline.deleteTask(key);
     if (deleted) {
       res.json({ deleted: true });
     } else {
-      res.status(404).json({ error: `Task ${req.params.key} not found` });
+      res.status(404).json({ error: `Task ${key} not found` });
     }
+  });
+
+  router.post('/effects/:id/claim', (req: Request, res: Response) => {
+    const clientId = req.body?.clientId;
+    if (!clientId || typeof clientId !== 'string') {
+      res.status(400).json({ error: 'clientId is required' });
+      return;
+    }
+    try {
+      const effect = pipeline.claimEffect(param(req.params.id), clientId);
+      res.json(effect);
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(409).json({ error: message });
+      }
+    }
+  });
+
+  router.post('/effects/:id/ack', (req: Request, res: Response) => {
+    const acked = pipeline.ackEffect(param(req.params.id));
+    res.json({ acked });
   });
 
   // GET /api/tasks/:key/logs — get task logs
   router.get('/tasks/:key/logs', (req: Request, res: Response) => {
-    const task = store.getTask(req.params.key);
+    const key = param(req.params.key);
+    const task = store.getTask(key);
     if (!task) {
-      res.status(404).json({ error: `Task ${req.params.key} not found` });
+      res.status(404).json({ error: `Task ${key} not found` });
       return;
     }
     if (!task.logPath) {

@@ -9,12 +9,14 @@ export interface ExecutorOptions {
   config: ClaudeConfig;
   timeoutMs?: number;
   env?: Record<string, string>;
+  resumeSessionId?: string;
   onEvent?: (event: ClaudeEvent) => void;
   onOutput?: (line: string) => void;
+  onSpawn?: (child: ChildProcess) => void;
 }
 
 export async function executeClaudeCode(options: ExecutorOptions): Promise<ExecutionResult> {
-  const { prompt, cwd, config, timeoutMs = 30 * 60 * 1000, onEvent, onOutput } = options;
+  const { prompt, cwd, config, timeoutMs = 30 * 60 * 1000, onEvent, onOutput, resumeSessionId } = options;
   const startTime = Date.now();
 
   const commandStr = config.command ?? 'claude';
@@ -22,7 +24,7 @@ export async function executeClaudeCode(options: ExecutorOptions): Promise<Execu
   const commandParts = commandStr.split(/\s+/);
   const program = commandParts[0];
   const preArgs = commandParts.slice(1);
-  const args = [...preArgs, ...buildArgs(prompt, config)];
+  const args = [...preArgs, ...buildArgs(prompt, config, resumeSessionId)];
 
   return new Promise<ExecutionResult>((resolve, reject) => {
     const child: ChildProcess = spawn(program, args, {
@@ -30,6 +32,7 @@ export async function executeClaudeCode(options: ExecutorOptions): Promise<Execu
       env: { ...process.env, ...options.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    options.onSpawn?.(child);
 
     const parser = new OutputParser();
     let resultEvent: ClaudeEvent | null = null;
@@ -90,13 +93,18 @@ export async function executeClaudeCode(options: ExecutorOptions): Promise<Execu
   });
 }
 
-function buildArgs(prompt: string, config: ClaudeConfig): string[] {
+function buildArgs(prompt: string, config: ClaudeConfig, resumeSessionId?: string): string[] {
   const args: string[] = [
-    '-p', prompt,
     '--output-format', 'stream-json',
     '--verbose',
     '--dangerously-skip-permissions',
   ];
+
+  if (resumeSessionId) {
+    args.push('--resume', resumeSessionId);
+  }
+
+  args.push('-p', prompt);
 
   if (config.model) {
     args.push('--model', config.model);

@@ -10,16 +10,48 @@ interface ScreenshotContext {
   branchName: string;
 }
 
+interface RecoveryContext {
+  wasInterrupted: boolean;
+  resumeMode: 'claude-session' | 'fresh-recovery';
+  worktreePath?: string;
+  workspacePath?: string;
+  branchName?: string;
+  prUrl?: string;
+  logPath?: string;
+}
+
 export function buildPrompt(
   task: TaskInput,
   config: ServerConfig,
   repoPath: string,
   mode: TaskMode = 'implement',
   screenshotContext?: ScreenshotContext,
+  recoveryContext?: RecoveryContext,
 ): string {
   const { branchPrefix, defaultBaseBranch, pushRemote, createDraftPr } = config.git;
   const taskJson = JSON.stringify(task, null, 2);
   const appendSection = config.claude.appendSystemPrompt ? `\n\n${config.claude.appendSystemPrompt}` : '';
+  const worktreePath = recoveryContext?.worktreePath ?? `/tmp/jiranimo-${task.key}`;
+  const recoverySection = recoveryContext?.wasInterrupted
+    ? `
+
+### Recovery Context
+- The previous run was interrupted and you are resuming work.
+- Resume mode: \`${recoveryContext.resumeMode}\`
+- Worktree path: \`${worktreePath}\`
+- Claude workspace path: \`${recoveryContext.workspacePath ?? 'unknown'}\`
+- Previous branch: \`${recoveryContext.branchName ?? 'unknown'}\`
+- Existing PR: ${recoveryContext.prUrl ?? 'none'}
+- Previous log path: \`${recoveryContext.logPath ?? 'unknown'}\`
+
+Before making any further changes, inspect the current repo state carefully:
+- Run \`git -C ${worktreePath} status\`
+- Review changed files and diffs
+- Inspect recent commits if any exist
+- Review the existing PR if one already exists
+- Use the restored Claude conversation history if available, but still verify the filesystem before acting
+`
+    : '';
 
   if (mode === 'screenshot' && screenshotContext) {
     const { prUrl, prNumber, branchName } = screenshotContext;
@@ -38,8 +70,8 @@ The Jira comments in the task above contain instructions on how to screenshot th
 
 **Step 1 - Check out the branch** (read-only, no new commits needed):
 \`\`\`
-git -C ${repoPath} worktree add /tmp/jiranimo-${task.key} ${branchName}
-cd /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree add ${worktreePath} ${branchName}
+cd ${worktreePath}
 \`\`\`
 
 **Step 2 - Take the screenshot** following the instructions in the Jira comments.
@@ -62,7 +94,7 @@ data:image/png;base64,\${SCREENSHOT_B64}"
 
 **Clean up the worktree**:
 \`\`\`
-git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree remove ${worktreePath}
 \`\`\`${appendSection}`;
   }
 
@@ -80,8 +112,8 @@ The repository is at: \`${repoPath}\`
 
 **Step 1 - Create a worktree** for exploration:
 \`\`\`
-git -C ${repoPath} worktree add /tmp/jiranimo-${task.key} -b ${branchPrefix}${task.key}-plan origin/${defaultBaseBranch}
-cd /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree add ${worktreePath} -b ${branchPrefix}${task.key}-plan origin/${defaultBaseBranch}
+cd ${worktreePath}
 \`\`\`
 If \`origin/${defaultBaseBranch}\` does not exist, detect the actual default branch first:
 \`git -C ${repoPath} remote show ${pushRemote} | grep 'HEAD branch'\`
@@ -95,7 +127,7 @@ If \`origin/${defaultBaseBranch}\` does not exist, detect the actual default bra
 
 **Clean up the worktree**:
 \`\`\`
-git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree remove ${worktreePath}
 \`\`\`${appendSection}`;
   }
 
@@ -105,6 +137,7 @@ git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
 \`\`\`json
 ${taskJson}
 \`\`\`
+${recoverySection}
 
 ### Your Workspace & Git Instructions
 
@@ -112,8 +145,10 @@ The repository you should work on is at: \`${repoPath}\`
 
 **Step 1 - Create a worktree** for isolation:
 \`\`\`
-git -C ${repoPath} worktree add /tmp/jiranimo-${task.key} -b ${branchPrefix}${task.key}-<short-slug> origin/${defaultBaseBranch}
-cd /tmp/jiranimo-${task.key}
+if [ ! -d "${worktreePath}" ]; then
+  git -C ${repoPath} worktree add ${worktreePath} -b ${branchPrefix}${task.key}-<short-slug> origin/${defaultBaseBranch}
+fi
+cd ${worktreePath}
 \`\`\`
 If \`origin/${defaultBaseBranch}\` does not exist, detect the actual default branch first:
 \`git -C ${repoPath} remote show ${pushRemote} | grep 'HEAD branch'\`
@@ -167,6 +202,6 @@ Run \`gh pr view --json body --jq '.body'\` and confirm it contains the screensh
 
 **Clean up the worktree**:
 \`\`\`
-git -C ${repoPath} worktree remove /tmp/jiranimo-${task.key}
+git -C ${repoPath} worktree remove ${worktreePath}
 \`\`\`${appendSection}`;
 }

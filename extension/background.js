@@ -14,15 +14,27 @@
 const LOG = '[Jiranimo BG]';
 let serverUrl = 'http://localhost:3456';
 
+function normalizeServerUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === '127.0.0.1') {
+      parsed.hostname = 'localhost';
+    }
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return url;
+  }
+}
+
 // Load settings on startup
 chrome.storage.local.get(['serverUrl'], (result) => {
-  if (result.serverUrl) serverUrl = result.serverUrl;
+  if (result.serverUrl) serverUrl = normalizeServerUrl(result.serverUrl);
 });
 
 // Listen for settings changes
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.serverUrl?.newValue) {
-    serverUrl = changes.serverUrl.newValue;
+    serverUrl = normalizeServerUrl(changes.serverUrl.newValue);
   }
 });
 

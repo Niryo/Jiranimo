@@ -219,6 +219,8 @@ describe('Full Flow E2E', () => {
 
     // ── 6. Navigate to real Jira board ─────────────────────────────────────
     const page = await context.newPage();
+    page.on('console', msg => console.log(`[PAGE ${msg.type()}] ${msg.text()}`));
+    page.on('pageerror', err => console.log(`[PAGEERROR] ${err.message}`));
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(boardUrl);
 
@@ -285,8 +287,23 @@ describe('Full Flow E2E', () => {
     await page.screenshot({ path: join(screenshotsDir, '03-badge-clicked.png'), fullPage: true });
 
     const badgeClass = await page.locator(`[data-jiranimo="${issueKey}"]`).getAttribute('class');
+    let debugState: any = null;
+    for (let i = 0; i < 10; i++) {
+      debugState = await page.evaluate(() => {
+        const raw = document.documentElement.getAttribute('data-jiranimo-debug');
+        return raw ? JSON.parse(raw) : null;
+      });
+      if (debugState?.stage === 'task-submitted' || debugState?.stage === 'submit-failed' || debugState?.stage === 'submit-exception' || debugState?.stage === 'fetch-issue-failed') {
+        break;
+      }
+      await page.waitForTimeout(500);
+    }
+    console.log(`[TEST] Debug state after click: ${JSON.stringify(debugState)}`);
     expect(badgeClass, 'Badge should have left idle after click').not.toContain('idle');
     console.log(`[TEST] Badge state after click: ${badgeClass}`);
+    if (debugState?.stage && debugState.stage !== 'task-submitted') {
+      throw new Error(`Task submission failed early: ${JSON.stringify(debugState)}`);
+    }
 
     // ── 10. Poll server until Claude completes ─────────────────────────────
     console.log('[TEST] Waiting for real Claude to complete (up to 10 min)...');

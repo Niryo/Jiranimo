@@ -41,6 +41,8 @@ async function main() {
 
   // State — dev uses local file, prod uses global default
   const store = new StateStore(config.statePath ? { filePath: config.statePath } : undefined);
+  const meta = store.beginServerEpoch();
+  store.flushSync();
   const pipeline = new PipelineManager(store, config);
 
   const app = createApp(store, pipeline);
@@ -63,6 +65,7 @@ async function main() {
       console.log(`[DEV] State: ${config.statePath}`);
       console.log(`[DEV] Logs: ${config.logsDir}`);
       console.log(`[DEV] Extension auto-reload: enabled`);
+      console.log(`[DEV] Server epoch: ${meta.serverEpoch}`);
     } else {
       const extensionPath = resolve(process.cwd(), '..', 'extension');
       console.log(`\nTo install the Chrome extension:`);
@@ -79,6 +82,7 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log('\nShutting down...');
+    pipeline.shutdown();
     store.flushSync();
     store.destroy();
     server.close(() => process.exit(0));

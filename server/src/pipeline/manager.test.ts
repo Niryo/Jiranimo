@@ -145,6 +145,119 @@ describe('PipelineManager', () => {
     store.destroy();
   });
 
+  it('recovers in-progress tasks as interrupted resume candidates on startup', () => {
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-RECOVER',
+      summary: 'Resume me',
+      description: 'Resume me',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-RECOVER',
+      status: 'in-progress',
+      claudeSessionId: 'sess-123',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const mgr = new PipelineManager(store, testConfig);
+    const task = store.getTask('PROJ-RECOVER');
+
+    expect(task?.status).toBe('interrupted');
+    expect(task?.recoveryState).toBe('resume-pending');
+    expect(task?.resumeMode).toBe('claude-session');
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('cancelResume prevents automatic resume from remaining scheduled', () => {
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-CANCEL',
+      summary: 'Cancel resume',
+      description: 'Cancel resume',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-CANCEL',
+      status: 'interrupted',
+      recoveryState: 'resume-pending',
+      resumeAfter: new Date(Date.now() + 30_000).toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const mgr = new PipelineManager(store, testConfig);
+    const updated = mgr.cancelResume('PROJ-CANCEL');
+
+    expect(updated.recoveryState).toBe('resume-cancelled');
+    expect(updated.resumeAfter).toBeUndefined();
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('uses Claude session resume when manually resuming an interrupted task with a session id', async () => {
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-SESSION',
+      summary: 'Resume with session',
+      description: 'Resume with session',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-SESSION',
+      status: 'interrupted',
+      recoveryState: 'resume-cancelled',
+      claudeSessionId: 'sess-abc',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const mgr = new PipelineManager(store, testConfig);
+    mgr.resumeTask('PROJ-SESSION');
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(vi.mocked(executeClaudeCode).mock.calls.at(-1)?.[0].resumeSessionId).toBe('sess-abc');
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('falls back to fresh recovery when manually resuming without a session id', async () => {
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-FRESH',
+      summary: 'Resume fresh',
+      description: 'Resume fresh',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-FRESH',
+      status: 'interrupted',
+      recoveryState: 'resume-cancelled',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const mgr = new PipelineManager(store, testConfig);
+    mgr.resumeTask('PROJ-FRESH');
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(vi.mocked(executeClaudeCode).mock.calls.at(-1)?.[0].resumeSessionId).toBeUndefined();
+    mgr.shutdown();
+    store.destroy();
+  });
+
   it('logs session started only once even when multiple init events arrive', async () => {
     const { executeClaudeCode } = await import('../claude/executor.js');
 
