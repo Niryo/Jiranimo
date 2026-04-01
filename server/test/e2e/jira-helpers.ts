@@ -63,30 +63,60 @@ export async function addIssuesToSprint(sprintId: number, issueKeys: string[]): 
   });
   if (!res.ok) {
     const text = await res.text();
-    console.warn(`Failed to add issues to sprint ${sprintId}: ${res.status} ${text}`);
+    throw new Error(`Failed to add issues to sprint ${sprintId}: ${res.status} ${text}`);
+  }
+}
+
+async function sprintContainsIssue(sprintId: number, issueKey: string): Promise<boolean> {
+  const maxResults = 50;
+  let startAt = 0;
+
+  while (true) {
+    const res = await jiraRequest(
+      'GET',
+      `/rest/agile/1.0/sprint/${sprintId}/issue?fields=summary&maxResults=${maxResults}&startAt=${startAt}`,
+    );
+    if (!res.ok) {
+      return false;
+    }
+
+    const data = await res.json() as {
+      issues?: Array<{ key?: string }>;
+      total?: number;
+      startAt?: number;
+      maxResults?: number;
+      isLast?: boolean;
+    };
+    const issues = data.issues ?? [];
+
+    if (issues.some((issue) => issue.key === issueKey)) {
+      return true;
+    }
+
+    const total = Number(data.total ?? 0);
+    const nextStartAt = startAt + issues.length;
+    const isLastPage = data.isLast === true || issues.length === 0 || nextStartAt >= total;
+    if (isLastPage) {
+      return false;
+    }
+
+    startAt = nextStartAt;
   }
 }
 
 async function waitForIssueInSprint(
   sprintId: number,
   issueKey: string,
-  timeoutMs = 30_000,
+  timeoutMs = 90_000,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    const res = await jiraRequest(
-      'GET',
-      `/rest/agile/1.0/sprint/${sprintId}/issue?fields=summary&maxResults=200`,
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const issues = data.issues ?? [];
-      if (issues.some((issue: { key?: string }) => issue.key === issueKey)) {
-        return true;
-      }
+    if (await sprintContainsIssue(sprintId, issueKey)) {
+      return true;
     }
-    await new Promise(resolve => setTimeout(resolve, 1_000));
+
+    await new Promise(resolve => setTimeout(resolve, 2_000));
   }
 
   return false;
@@ -124,7 +154,9 @@ export async function createTestIssue(fields: {
       await addIssuesToSprint(sprintId, [key]);
       const visibleInSprint = await waitForIssueInSprint(sprintId, key);
       if (!visibleInSprint) {
-        throw new Error(`Issue ${key} was added to sprint ${sprintId} but never appeared in sprint issues`);
+        throw new Error(
+          `Issue ${key} was added to sprint ${sprintId} but never appeared in sprint issues within 90000ms`
+        );
       }
     }
   }
