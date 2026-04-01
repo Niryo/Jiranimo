@@ -31,8 +31,6 @@ const webConfigSchema = z.object({
 });
 
 export const serverConfigSchema = z.object({
-  reposRoot: z.string().min(1),
-  repoName: z.string().optional(),
   logsDir: z.string().optional(),
   statePath: z.string().optional(),
   claude: claudeConfigSchema.default({ maxBudgetUsd: 2.0, allowedTools: DEFAULT_ALLOWED_TOOLS }),

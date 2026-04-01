@@ -5,14 +5,41 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER_DIR="$PROJECT_ROOT/server"
 EXTENSION_DIR="$PROJECT_ROOT/extension"
 
-# Check for --self flag: operate on this repo instead of gitPlaygrounds
-JIRANIMO_SELF=""
+SERVER_ONLY=""
+TARGET_INPUT=""
 for arg in "$@"; do
-  if [ "$arg" = "--self" ]; then
-    JIRANIMO_SELF=1
-    break
-  fi
+  case "$arg" in
+    --server-only)
+      SERVER_ONLY=1
+      ;;
+    -*)
+      echo "[dev] Unknown option: $arg"
+      echo "[dev] Usage: npm run dev -- <path-to-repo-or-repos>"
+      exit 1
+      ;;
+    *)
+      if [ -n "$TARGET_INPUT" ]; then
+        echo "[dev] Only one path argument is supported"
+        echo "[dev] Usage: npm run dev -- <path-to-repo-or-repos>"
+        exit 1
+      fi
+      TARGET_INPUT="$arg"
+      ;;
+  esac
 done
+
+if [ -z "$TARGET_INPUT" ]; then
+  echo "[dev] Missing required path argument"
+  echo "[dev] Usage: npm run dev -- <path-to-repo-or-repos>"
+  exit 1
+fi
+
+if [ ! -d "$TARGET_INPUT" ]; then
+  echo "[dev] Path not found: $TARGET_INPUT"
+  exit 1
+fi
+
+TARGET_PATH="$(cd "$TARGET_INPUT" && pwd)"
 
 # Load .env.test for JIRA_HOST
 if [ -f "$PROJECT_ROOT/.env.test" ]; then
@@ -53,14 +80,10 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Start server
-if [ -n "$JIRANIMO_SELF" ]; then
-  echo "[dev] Self mode: Claude will operate on the Jiranimo repo itself"
-fi
-
-echo "[dev] Starting server in development mode..."
+echo "[dev] Starting Jiranimo server..."
+echo "[dev] Target path: $TARGET_PATH"
 cd "$SERVER_DIR"
-JIRANIMO_MODE=development JIRANIMO_SELF="$JIRANIMO_SELF" npx tsx watch src/index.ts &
+npx tsx watch src/index.ts "$TARGET_PATH" &
 SERVER_PID=$!
 echo "$SERVER_PID" > "$PID_FILE"
 
@@ -77,6 +100,14 @@ for i in $(seq 1 30); do
   fi
   sleep 0.5
 done
+
+if [ -n "$SERVER_ONLY" ]; then
+  echo ""
+  echo "[dev] Server is ready. Press Ctrl+C to stop."
+  echo ""
+  wait $SERVER_PID
+  exit $?
+fi
 
 # Launch Chrome with dev profile + extension
 CHROME_APP="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -99,7 +130,7 @@ else
 fi
 
 echo ""
-echo "[dev] Ready! Extension auto-reloads on file changes."
+echo "[dev] Ready!"
 echo "[dev] Press Ctrl+C to stop."
 echo ""
 

@@ -23,12 +23,12 @@ vi.mock('../mcp/server.js', () => ({
 }));
 
 const testConfig: ServerConfig = {
-  reposRoot: '/tmp/repos',
   claude: { maxBudgetUsd: 2.0 },
   pipeline: { concurrency: 1 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },
   web: { port: 3456, host: '127.0.0.1' },
 };
+const testRepoTarget = { kind: 'repo-root' as const, reposRoot: '/tmp/repos' };
 
 const validTask = {
   key: 'PROJ-1',
@@ -49,7 +49,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   tmpDir = mkdtempSync(join(tmpdir(), 'jiranimo-api-test-'));
   store = new StateStore({ filePath: join(tmpDir, 'state.json'), flushDelayMs: 0 });
-  pipeline = new PipelineManager(store, testConfig);
+  pipeline = new PipelineManager(store, testConfig, testRepoTarget);
   app = createApp(store, pipeline);
 });
 

@@ -24,8 +24,6 @@ export interface WebConfig {
 }
 
 export interface ServerConfig {
-  reposRoot: string;
-  repoName?: string; // if set, skip repo discovery and use this repo directly
   claude: ClaudeConfig;
   pipeline: PipelineConfig;
   git: GitConfig;

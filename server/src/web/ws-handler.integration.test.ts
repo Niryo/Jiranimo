@@ -29,12 +29,12 @@ vi.mock('../mcp/server.js', () => ({
 }));
 
 const testConfig: ServerConfig = {
-  reposRoot: '/tmp/repos',
   claude: { maxBudgetUsd: 2.0 },
   pipeline: { concurrency: 1 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },
   web: { port: 0, host: '127.0.0.1' },
 };
+const testRepoTarget = { kind: 'repo-root' as const, reposRoot: '/tmp/repos' };
 
 let tmpDir: string;
 let store: StateStore;
@@ -47,7 +47,7 @@ beforeEach(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'jiranimo-ws-test-'));
   store = new StateStore({ filePath: join(tmpDir, 'state.json'), flushDelayMs: 0 });
   store.beginServerEpoch();
-  pipeline = new PipelineManager(store, testConfig);
+  pipeline = new PipelineManager(store, testConfig, testRepoTarget);
   const app = createApp(store, pipeline);
   server = createServer(app);
   attachWebSocket(server, pipeline);

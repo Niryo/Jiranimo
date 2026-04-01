@@ -14,6 +14,7 @@ import { classifyTask } from '../claude/task-classifier.js';
 import { executeClaudeCode } from '../claude/executor.js';
 import { pickRepo } from '../repo-picker.js';
 import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
+import type { RepoTarget } from '../runtime-target.js';
 
 const RESUME_GRACE_MS = 15_000;
 const EFFECT_CLAIM_LEASE_MS = 30_000;
@@ -42,15 +43,17 @@ function sha1(text: string): string {
 export class PipelineManager extends EventEmitter {
   private store: StateStore;
   private config: ServerConfig;
+  private repoTarget: RepoTarget;
   private activeCount = 0;
   private processing = false;
   private activeChildren = new Map<string, ChildProcess>();
   private resumeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  constructor(store: StateStore, config: ServerConfig) {
+  constructor(store: StateStore, config: ServerConfig, repoTarget: RepoTarget) {
     super();
     this.store = store;
     this.config = config;
+    this.repoTarget = repoTarget;
     this.recoverOnStartup();
     setImmediate(() => this.processQueue());
   }
@@ -527,9 +530,9 @@ export class PipelineManager extends EventEmitter {
 
     try {
       const [repoPath, taskMode] = await Promise.all([
-        this.config.repoName
-          ? Promise.resolve(join(this.config.reposRoot, this.config.repoName))
-          : pickRepo(this.config.reposRoot, started),
+        this.repoTarget.kind === 'single-repo'
+          ? Promise.resolve(this.repoTarget.repoPath)
+          : pickRepo(this.repoTarget.reposRoot, started),
         started.taskMode != null
           ? Promise.resolve(started.taskMode)
           : classifyTask(started),

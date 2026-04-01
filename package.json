@@ -6,11 +6,11 @@
     "extension"
   ],
   "scripts": {
-    "dev": "bash scripts/dev.sh",
-    "dev:self": "bash scripts/dev.sh --self",
-    "dev:server": "cd server && JIRANIMO_MODE=development npx tsx watch src/index.ts",
-    "dev:clean": "rm -f server/.dev-state.json && rm -rf server/.dev-logs/ && echo 'Dev state cleaned'",
-    "dev:reset": "npm run dev:clean && rm -rf .chrome-dev-profile && echo 'Full dev reset done'",
+    "dev": "bash scripts/dev.sh ./gitPlaygrounds",
+    "dev:self": "bash scripts/dev.sh .",
+    "dev:server": "bash scripts/dev.sh --server-only ./gitPlaygrounds",
+    "dev:clean": "rm -f \"$HOME/.jiranimo/state.json\" && rm -rf \"$HOME/.jiranimo/logs\" && echo 'Jiranimo state cleaned'",
+    "dev:reset": "npm run dev:clean && rm -rf .chrome-dev-profile && echo 'Jiranimo reset done'",
     "start": "npm run start --workspace=server",
     "test": "npm run test --workspace=server",
     "test:integration": "npm run test:integration --workspace=server",

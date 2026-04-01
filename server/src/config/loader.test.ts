@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 vi.mock('node:fs');
 
 const validConfig = JSON.stringify({
-  reposRoot: '/tmp/repos',
+  claude: { maxBudgetUsd: 3.5 },
 });
 
 beforeEach(() => {
@@ -21,8 +21,7 @@ describe('loadConfig', () => {
     vi.mocked(fs.readFileSync).mockReturnValue(validConfig);
 
     const config = loadConfig({ configPath: '/fake/config.json' });
-    expect(config.reposRoot).toBe('/tmp/repos');
-    expect(config.claude.maxBudgetUsd).toBe(2.0);
+    expect(config.claude.maxBudgetUsd).toBe(3.5);
   });
 
   it('applies defaults for missing optional fields', () => {
@@ -34,13 +33,14 @@ describe('loadConfig', () => {
     expect(config.pipeline.concurrency).toBe(1);
   });
 
-  it('throws on missing config file', () => {
+  it('returns defaults when no config file is found', () => {
     vi.mocked(fs.readFileSync).mockImplementation(() => {
       throw new Error('ENOENT');
     });
 
-    expect(() => loadConfig({ searchPaths: ['/nonexistent/config.json'] }))
-      .toThrow('Config file not found');
+    const config = loadConfig({ searchPaths: ['/nonexistent/config.json'] });
+    expect(config.claude.maxBudgetUsd).toBe(2.0);
+    expect(config.web.port).toBe(3456);
   });
 
   it('throws on invalid JSON', () => {
@@ -51,30 +51,30 @@ describe('loadConfig', () => {
   });
 
   it('throws on schema validation failure with descriptive message', () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({}));
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ web: { port: 0 } }));
 
     expect(() => loadConfig({ configPath: '/fake/config.json' }))
       .toThrow('Invalid config');
   });
 
   it('resolves $ENV_VAR references in string values', () => {
-    process.env.TEST_REPOS_ROOT = '/resolved/path';
+    process.env.TEST_APPEND_PROMPT = 'Always run tests';
 
     vi.mocked(fs.readFileSync).mockReturnValue(
-      JSON.stringify({ reposRoot: '$TEST_REPOS_ROOT' })
+      JSON.stringify({ claude: { appendSystemPrompt: '$TEST_APPEND_PROMPT' } })
     );
 
     const config = loadConfig({ configPath: '/fake/config.json' });
-    expect(config.reposRoot).toBe('/resolved/path');
+    expect(config.claude.appendSystemPrompt).toBe('Always run tests');
 
-    delete process.env.TEST_REPOS_ROOT;
+    delete process.env.TEST_APPEND_PROMPT;
   });
 
   it('throws when referenced env var is not set', () => {
     delete process.env.NONEXISTENT_VAR;
 
     vi.mocked(fs.readFileSync).mockReturnValue(
-      JSON.stringify({ reposRoot: '$NONEXISTENT_VAR' })
+      JSON.stringify({ claude: { appendSystemPrompt: '$NONEXISTENT_VAR' } })
     );
 
     expect(() => loadConfig({ configPath: '/fake/config.json' }))
@@ -90,8 +90,25 @@ describe('loadConfig', () => {
     });
 
     const config = loadConfig({ searchPaths: ['/first/config.json', '/second/config.json'] });
-    expect(config.reposRoot).toBe('/tmp/repos');
+    expect(config.claude.maxBudgetUsd).toBe(3.5);
     // findConfigFile reads once to check existence, loadConfig reads again to parse
     expect(callCount).toBe(3);
+  });
+
+  it('ignores legacy repo location keys in older config files', () => {
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        repoPath: '/legacy/path',
+        reposRoot: '/legacy/root',
+        repoName: 'legacy-repo',
+        git: { defaultBaseBranch: 'develop' },
+      })
+    );
+
+    const config = loadConfig({ configPath: '/fake/config.json' });
+    expect(config.git.defaultBaseBranch).toBe('develop');
+    expect(config).not.toHaveProperty('repoPath');
+    expect(config).not.toHaveProperty('reposRoot');
+    expect(config).not.toHaveProperty('repoName');
   });
 });

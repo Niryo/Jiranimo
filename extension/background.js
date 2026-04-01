@@ -6,7 +6,7 @@
  *
  * This worker handles:
  * - Extension settings
- * - Dev mode auto-reload (listens for reload signal from server WebSocket)
+ * - Optional local auto-reload (listens for reload signals from the server WebSocket)
  */
 
 // @ts-check
@@ -38,9 +38,8 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// --- Dev mode auto-reload ---
-// Connect to server WebSocket and listen for extension-reload signals.
-// In production the server isn't on localhost, so this silently fails.
+// --- Optional local auto-reload ---
+// Connect to the configured server WebSocket and listen for extension-reload signals.
 function connectForAutoReload() {
   const wsUrl = serverUrl.replace(/^http/, 'ws') + '/ws';
   try {
@@ -59,7 +58,7 @@ function connectForAutoReload() {
     };
 
     ws.onclose = () => {
-      // Reconnect after delay (server might restart during dev)
+      // Reconnect after delay in case the local server restarts.
       setTimeout(connectForAutoReload, 5000);
     };
 

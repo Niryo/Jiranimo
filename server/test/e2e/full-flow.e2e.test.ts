@@ -74,7 +74,6 @@ async function startJiranimoServer(
   const store = new StateStore({ filePath: join(stateDir, 'state.json'), flushDelayMs: 0 });
 
   const config: ServerConfig = {
-    reposRoot,
     claude: { maxBudgetUsd: 2.0 },
     pipeline: { concurrency: 1 },
     git: {
@@ -86,7 +85,7 @@ async function startJiranimoServer(
     web: { port: 0, host: '127.0.0.1' },
   };
 
-  const pipeline = new PipelineManager(store, config);
+  const pipeline = new PipelineManager(store, config, { kind: 'repo-root', reposRoot });
   const app = createApp(store, pipeline);
   const httpServer = createServer(app as (req: IncomingMessage, res: ServerResponse) => void);
   attachWebSocket(httpServer, pipeline);

@@ -64,13 +64,12 @@ async function startJiranimoServer(reposRoot: string): Promise<{ port: number; s
   const stateDir = mkdtempSync(join(tmpdir(), 'jiranimo-oq-state-'));
   const store = new StateStore({ filePath: join(stateDir, 'state.json'), flushDelayMs: 0 });
   const config: ServerConfig = {
-    reposRoot,
     claude: { maxBudgetUsd: 2.0 },
     pipeline: { concurrency: 1 },
     git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: false },
     web: { port: 0, host: '127.0.0.1' },
   };
-  const pipeline = new PipelineManager(store, config);
+  const pipeline = new PipelineManager(store, config, { kind: 'repo-root', reposRoot });
   const app = createApp(store, pipeline);
   const httpServer = createServer(app as (req: IncomingMessage, res: ServerResponse) => void);
   attachWebSocket(httpServer, pipeline);
