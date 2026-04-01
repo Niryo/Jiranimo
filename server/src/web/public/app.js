@@ -99,7 +99,7 @@ function taskCard(task) {
   // Show conversation log button for tasks that have been started
   const hasLogs = ['in-progress', 'interrupted', 'completed', 'failed'].includes(task.status);
   if (hasLogs) {
-    extra += `<button class="btn btn-log" onclick="openConvLog('${task.key}', '${escapeHtml(task.key)} — ${escapeHtml(task.summary).replace(/'/g, '&#39;')}')">View Log</button>`;
+    extra += `<button class="btn btn-log" onclick="openConvLog('${task.key}', '${escapeHtml(task.key)} — ${escapeHtml(task.summary).replace(/'/g, '&#39;').replace(/"/g, '&quot;')}')">View Log</button>`;
   }
 
   return `
