@@ -31,6 +31,8 @@ describe('loadConfig', () => {
     expect(config.git.branchPrefix).toBe('jiranimo/');
     expect(config.web.port).toBe(3456);
     expect(config.pipeline.concurrency).toBe(1);
+    expect(config.logging?.level).toBe('info');
+    expect(config.logging?.logHttpRequests).toBe(true);
   });
 
   it('returns defaults when no config file is found', () => {

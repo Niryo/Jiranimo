@@ -5,11 +5,15 @@ import type { PipelineManager } from '../pipeline/manager.js';
 import type { StateStore } from '../state/store.js';
 import { createApiRouter } from './api-routes.js';
 import { createMcpHandler } from '../mcp/server.js';
+import type { ServerConfig } from '../config/types.js';
+import { createLogger, resolveLoggingConfig } from '../logging/logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export function createApp(store: StateStore, pipeline: PipelineManager) {
+export function createApp(store: StateStore, pipeline: PipelineManager, config?: Pick<ServerConfig, 'logsDir' | 'logging'>) {
   const app = express();
+  const logger = createLogger(config, 'http');
+  const loggingConfig = resolveLoggingConfig(config);
 
   // CORS — allow requests from Jira and any origin (local tool, not public)
   // Access-Control-Allow-Private-Network is required by Chrome's Private Network
@@ -25,15 +29,29 @@ export function createApp(store: StateStore, pipeline: PipelineManager) {
 
   app.use(express.json());
 
-  // Request logging (after JSON parsing so body is available)
-  app.use((req, _res, next) => {
-    // Skip noisy polling requests and MCP traffic
-    if (req.method === 'GET' && req.url === '/tasks') { next(); return; }
-    if (req.url === '/mcp') { next(); return; }
-    console.log(`${req.method} ${req.originalUrl}`);
-    if (req.method === 'POST' && req.body) {
-      console.log(`  Body: ${JSON.stringify(req.body).slice(0, 300)}`);
+  // Request logging (after JSON parsing so body is available).
+  app.use((req, res, next) => {
+    if (!loggingConfig.logHttpRequests || shouldSkipHttpLog(req.method, req.path)) {
+      next();
+      return;
     }
+
+    const startedAt = Date.now();
+    res.on('finish', () => {
+      const meta: Record<string, unknown> = {
+        method: req.method,
+        path: req.originalUrl,
+        status: res.statusCode,
+        durationMs: Date.now() - startedAt,
+      };
+
+      if (loggingConfig.logHttpBodies && req.method !== 'GET' && hasBody(req.body)) {
+        meta.body = JSON.stringify(req.body).slice(0, 300);
+      }
+
+      logger.info('HTTP request', meta);
+    });
+
     next();
   });
 
@@ -48,4 +66,16 @@ export function createApp(store: StateStore, pipeline: PipelineManager) {
   app.use(express.static(resolve(__dirname, 'public')));
 
   return app;
+}
+
+function shouldSkipHttpLog(method: string, path: string): boolean {
+  if (path === '/mcp') return true;
+  if (!path.startsWith('/api')) return true;
+  return method === 'GET' && (path === '/api/tasks' || path === '/api/sync');
+}
+
+function hasBody(body: unknown): boolean {
+  if (body == null) return false;
+  if (typeof body !== 'object') return true;
+  return Object.keys(body as Record<string, unknown>).length > 0;
 }

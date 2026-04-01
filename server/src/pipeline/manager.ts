@@ -15,6 +15,7 @@ import { executeClaudeCode } from '../claude/executor.js';
 import { pickRepo } from '../repo-picker.js';
 import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
 import type { RepoTarget } from '../runtime-target.js';
+import { createLogger, isSuppressedChildProcessLogLine, resolveLoggingConfig, type Logger } from '../logging/logger.js';
 
 const RESUME_GRACE_MS = 15_000;
 const EFFECT_CLAIM_LEASE_MS = 30_000;
@@ -48,12 +49,16 @@ export class PipelineManager extends EventEmitter {
   private processing = false;
   private activeChildren = new Map<string, ChildProcess>();
   private resumeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private logger: Logger;
+  private loggingConfig: ReturnType<typeof resolveLoggingConfig>;
 
   constructor(store: StateStore, config: ServerConfig, repoTarget: RepoTarget) {
     super();
     this.store = store;
     this.config = config;
     this.repoTarget = repoTarget;
+    this.logger = createLogger(config, 'pipeline');
+    this.loggingConfig = resolveLoggingConfig(config);
     this.recoverOnStartup();
     setImmediate(() => this.processQueue());
   }
@@ -351,7 +356,7 @@ export class PipelineManager extends EventEmitter {
         const task = this.store.getTask(key);
         if (!task) continue;
         this.runTask(key).catch(err => {
-          console.error('[PIPELINE] Unhandled runTask error:', err);
+          this.logger.error('Unhandled runTask error', { error: (err as Error).message, taskKey: key });
         });
       }
     } finally {
@@ -501,10 +506,14 @@ export class PipelineManager extends EventEmitter {
     mkdirSync(workspacePath, { recursive: true });
 
     this.activeCount++;
-    console.log(`\n${'='.repeat(60)}`);
     const concurrencyLabel = this.config.pipeline.concurrency === 0 ? 'unlimited' : String(this.config.pipeline.concurrency);
-    console.log(`[PIPELINE] Starting task: ${task.key} — ${task.summary} (${this.activeCount}/${concurrencyLabel} active)`);
-    console.log(`${'='.repeat(60)}`);
+    const taskLogger = this.logger.child(key);
+    taskLogger.info('Task started', {
+      summary: task.summary,
+      activeCount: this.activeCount,
+      concurrency: concurrencyLabel,
+      resumed: wasInterrupted,
+    });
 
     const started = this.transitionTask(key, 'start', {
       startedAt: new Date().toISOString(),
@@ -582,20 +591,29 @@ export class PipelineManager extends EventEmitter {
         onEvent: (event: ClaudeEvent) => {
           logLines.push(JSON.stringify(event.raw));
           this.emit('task-output', key, JSON.stringify(event.raw));
-          if (event.text) {
-            console.log(`[CLAUDE] ${event.text}`);
-          } else if (event.type === 'init' && event.sessionId && !sessionLogged) {
+          if (event.type === 'init' && event.sessionId && !sessionLogged) {
             sessionLogged = true;
-            console.log(`[CLAUDE] Session started: ${event.sessionId}`);
+            taskLogger.info('Claude session started', { sessionId: event.sessionId });
           } else if (event.type === 'result') {
-            console.log(`[CLAUDE] Result: ${event.isError ? 'ERROR' : 'SUCCESS'} — ${event.text?.slice(0, 200) || ''}`);
+            taskLogger.info('Claude result received', {
+              success: !event.isError,
+              summary: event.text?.slice(0, 200) || '',
+            });
+          } else if (event.text) {
+            taskLogger.debug('Claude message', { text: event.text });
           }
         },
         onOutput: (raw: string) => {
           for (const line of raw.split('\n')) {
             const trimmed = line.trim();
-            if (trimmed && !trimmed.startsWith('{')) {
-              console.log(`[CLAUDE RAW] ${trimmed}`);
+            if (!trimmed || trimmed.startsWith('{')) {
+              continue;
+            }
+            const suppressed = isSuppressedChildProcessLogLine(trimmed);
+            logLines.push(JSON.stringify({ type: 'raw-output', text: trimmed, suppressed }));
+            if (suppressed) continue;
+            if (this.loggingConfig.logClaudeRawOutput || taskLogger.isConsoleLevelEnabled('debug')) {
+              taskLogger.debug('Claude raw output', { text: trimmed });
             }
           }
         },
@@ -637,13 +655,10 @@ export class PipelineManager extends EventEmitter {
         });
       }
 
-      console.log(`[PIPELINE] ✓ Task ${key} completed`);
-      console.log(`${'='.repeat(60)}\n`);
+      taskLogger.info('Task completed', { logPath });
     } catch (err) {
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
-      console.error(`[PIPELINE] ✗ Task ${key} failed: ${(err as Error).message}`);
-      console.log(`[PIPELINE] Logs: ${logPath}`);
-      console.log(`${'='.repeat(60)}\n`);
+      taskLogger.error('Task failed', { error: (err as Error).message, logPath });
       const currentStatus = this.store.getTask(key)?.status;
       if (currentStatus === 'in-progress') {
         this.transitionTask(key, 'fail', {

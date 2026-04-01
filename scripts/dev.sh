@@ -53,6 +53,8 @@ SERVER_PORT=3456
 DASHBOARD_URL="http://127.0.0.1:$SERVER_PORT"
 CHROME_PROFILE_DIR="$PROJECT_ROOT/.chrome-dev-profile"
 PID_FILE="$PROJECT_ROOT/.dev-pids"
+RUNTIME_LOG_DIR="${JIRANIMO_LOG_DIR:-$HOME/.jiranimo/logs}"
+CHROME_LOG_FILE="$RUNTIME_LOG_DIR/chrome-dev.log"
 
 # Construct Jira board URL
 JIRA_BOARD_URL="${JIRA_BOARD_URL:-}"
@@ -67,6 +69,8 @@ if [ -f "$PID_FILE" ]; then
   done < "$PID_FILE"
   rm -f "$PID_FILE"
 fi
+
+mkdir -p "$RUNTIME_LOG_DIR"
 
 cleanup() {
   echo ""
@@ -113,13 +117,15 @@ fi
 CHROME_APP="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 if [ -f "$CHROME_APP" ]; then
   echo "[dev] Launching Chrome with dev profile..."
+  echo "[dev] Chrome output: $CHROME_LOG_FILE"
   "$CHROME_APP" \
     --user-data-dir="$CHROME_PROFILE_DIR" \
     --load-extension="$EXTENSION_DIR" \
     --no-first-run \
     --no-default-browser-check \
     "$DASHBOARD_URL" \
-    ${JIRA_BOARD_URL:+"$JIRA_BOARD_URL"} &
+    ${JIRA_BOARD_URL:+"$JIRA_BOARD_URL"} \
+    >> "$CHROME_LOG_FILE" 2>&1 &
   CHROME_PID=$!
   echo "$CHROME_PID" >> "$PID_FILE"
   echo "[dev] Chrome launched (profile: $CHROME_PROFILE_DIR)"
