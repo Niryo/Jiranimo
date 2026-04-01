@@ -26,6 +26,7 @@
   const BADGE_ATTR = 'data-jiranimo';
   const SCAN_DEBOUNCE = 500;
   const WS_RECONNECT_DELAY = 3000;
+  const BOARD_REFRESH_DELAY = 1200;
   const CARD_SELECTOR = '[data-testid="platform-board-kit.ui.card.card"]';
   const CARD_CONTENT_SELECTOR = [
     CARD_SELECTOR,
@@ -59,6 +60,8 @@
   let boardConfig = null;
   /** @type {number|null} */
   let scanTimer = null;
+  /** @type {number|null} */
+  let boardRefreshTimer = null;
   /** @type {string|null} */
   let currentBoardId = null;
 
@@ -607,6 +610,36 @@
     log('MutationObserver attached');
   }
 
+  function shouldRefreshBoardForIssue(issueKey) {
+    return Boolean(
+      findCardByIssueKey(issueKey) ||
+      document.querySelector(`[${BADGE_ATTR}="${issueKey}"]`)
+    );
+  }
+
+  function scheduleBoardRefresh(issueKey, reason) {
+    if (!shouldRefreshBoardForIssue(issueKey)) {
+      log(`Skipping board refresh for ${issueKey}; issue is not on the current board`, reason);
+      return;
+    }
+
+    if (boardRefreshTimer) {
+      log(`Board refresh already scheduled for ${issueKey}`, reason);
+      return;
+    }
+
+    log(`Scheduling board refresh for ${issueKey}:`, reason);
+    boardRefreshTimer = setTimeout(() => {
+      boardRefreshTimer = null;
+      try {
+        log(`Refreshing board after Jira status sync for ${issueKey}`);
+        location.reload();
+      } catch (err) {
+        warn('Board refresh failed:', err);
+      }
+    }, BOARD_REFRESH_DELAY);
+  }
+
   /** @type {WebSocket|null} */
   let ws = null;
 
@@ -651,15 +684,33 @@
       if (!issueKey || typeof issueKey !== 'string') return false;
 
       if (pipelineStatus === 'in-progress' && boardConfig?.transitions?.inProgress) {
+        const targetStatus = boardConfig.transitions.inProgress.name;
         const current = (await getIssueStatus(issueKey)).toLowerCase();
-        if (current === boardConfig.transitions.inProgress.name.toLowerCase()) return true;
-        return transitionIssue(issueKey, boardConfig.transitions.inProgress.name);
+        if (current === targetStatus.toLowerCase()) {
+          scheduleBoardRefresh(issueKey, `status already ${targetStatus}`);
+          return true;
+        }
+
+        const transitioned = await transitionIssue(issueKey, targetStatus);
+        if (transitioned) {
+          scheduleBoardRefresh(issueKey, `transitioned to ${targetStatus}`);
+        }
+        return transitioned;
       }
 
       if (pipelineStatus === 'completed' && boardConfig?.transitions?.inReview) {
+        const targetStatus = boardConfig.transitions.inReview.name;
         const current = (await getIssueStatus(issueKey)).toLowerCase();
-        if (current === boardConfig.transitions.inReview.name.toLowerCase()) return true;
-        return transitionIssue(issueKey, boardConfig.transitions.inReview.name);
+        if (current === targetStatus.toLowerCase()) {
+          scheduleBoardRefresh(issueKey, `status already ${targetStatus}`);
+          return true;
+        }
+
+        const transitioned = await transitionIssue(issueKey, targetStatus);
+        if (transitioned) {
+          scheduleBoardRefresh(issueKey, `transitioned to ${targetStatus}`);
+        }
+        return transitioned;
       }
 
       return true;

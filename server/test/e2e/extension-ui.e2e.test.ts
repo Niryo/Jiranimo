@@ -20,6 +20,12 @@ let server: Server;
 let serverPort: number;
 let stepCounter = 0;
 let mockSprintIssues: Array<{ key: string; fields: { summary: string; labels: string[] } }> = [];
+let mockIssueStatuses: Record<string, string> = {};
+let mockSyncTasks: Array<Record<string, unknown>> = [];
+let mockPendingEffects: Array<Record<string, unknown>> = [];
+let mockServerEpoch = 0;
+let mockServerRevision = 0;
+let boardRequestCount = 0;
 
 function resetMockSprintIssues() {
   mockSprintIssues = [
@@ -28,6 +34,22 @@ function resetMockSprintIssues() {
     { key: 'JTEST-103', fields: { summary: 'Fix pagination bug on search results', labels: ['bug'] } },
     { key: 'JTEST-100', fields: { summary: 'Set up CI/CD pipeline', labels: [] } },
   ];
+}
+
+function resetMockIssueStatuses() {
+  mockIssueStatuses = {
+    'JTEST-100': 'In Progress',
+    'JTEST-101': 'To Do',
+    'JTEST-102': 'To Do',
+    'JTEST-103': 'To Do',
+  };
+}
+
+function resetMockSyncState() {
+  mockSyncTasks = [];
+  mockPendingEffects = [];
+  mockServerEpoch = 0;
+  mockServerRevision = 0;
 }
 
 const BOARD_URL = () => `http://127.0.0.1:${serverPort}/jira/software/projects/JTEST/boards/1`;
@@ -43,6 +65,9 @@ function screenshotPath(testName: string, phase: string): string {
 function startMockServer(): Promise<number> {
   return new Promise((resolve) => {
     server = createServer((req, res) => {
+      if (req.url?.startsWith('/jira/software/projects/JTEST/boards/1')) {
+        boardRequestCount++;
+      }
       if (req.url?.startsWith('/ext/')) {
         try {
           const content = readFileSync(join(EXTENSION_DIR, req.url.slice(5)), 'utf-8');
@@ -77,11 +102,64 @@ function startMockServer(): Promise<number> {
         res.end(JSON.stringify({ issues: mockSprintIssues }));
         return;
       }
+      if (req.method === 'GET' && req.url?.startsWith('/api/sync')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          serverEpoch: mockServerEpoch,
+          revision: mockServerRevision,
+          tasks: mockSyncTasks,
+          pendingEffects: mockPendingEffects,
+        }));
+        return;
+      }
+      if (req.method === 'POST' && req.url?.match(/^\/api\/effects\/[^/]+\/claim$/)) {
+        const effectId = req.url.match(/^\/api\/effects\/([^/]+)\/claim$/)?.[1];
+        const effect = mockPendingEffects.find(candidate => candidate.id === effectId);
+        if (!effect) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Effect not found' }));
+          return;
+        }
+        effect.status = 'claimed';
+        effect.claimedBy = 'test-client';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(effect));
+        return;
+      }
+      if (req.method === 'POST' && req.url?.match(/^\/api\/effects\/[^/]+\/ack$/)) {
+        const effectId = req.url.match(/^\/api\/effects\/([^/]+)\/ack$/)?.[1];
+        mockPendingEffects = mockPendingEffects.filter(candidate => candidate.id !== effectId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ acked: true }));
+        return;
+      }
       // Mock individual Jira issue details (used by fetchIssueDetails on badge click)
       const issueMatch = req.url?.match(/\/rest\/api\/3\/issue\/(JTEST-\d+)/);
       if (issueMatch) {
         const key = issueMatch[1];
         const issue = mockSprintIssues.find(candidate => candidate.key === key);
+        if (req.url?.endsWith('/transitions') && req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            transitions: [
+              { id: '11', name: 'To Do' },
+              { id: '21', name: 'In Progress' },
+              { id: '31', name: 'Done' },
+            ],
+          }));
+          return;
+        }
+        if (req.url?.endsWith('/transitions') && req.method === 'POST') {
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', () => {
+            const transitionId = JSON.parse(body || '{}')?.transition?.id;
+            mockIssueStatuses[key] = transitionId === '21' ? 'In Progress' : transitionId === '31' ? 'Done' : 'To Do';
+            res.writeHead(204);
+            res.end();
+          });
+          return;
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           key,
@@ -92,7 +170,7 @@ function startMockServer(): Promise<number> {
             issuetype: { name: 'Task' },
             labels: issue?.fields.labels || [],
             comment: { comments: [] },
-            status: { name: 'To Do' },
+            status: { name: mockIssueStatuses[key] || 'To Do' },
             subtasks: [],
             parent: null,
             issuelinks: [],
@@ -207,12 +285,17 @@ beforeAll(async () => {
   if (existsSync(SCREENSHOTS_DIR)) rmSync(SCREENSHOTS_DIR, { recursive: true, force: true });
   mkdirSync(SCREENSHOTS_DIR, { recursive: true });
   resetMockSprintIssues();
+  resetMockIssueStatuses();
+  resetMockSyncState();
   serverPort = await startMockServer();
   browser = await chromium.launch({ headless: process.env.PWHEADLESS !== 'false' });
 });
 
 beforeEach(() => {
   resetMockSprintIssues();
+  resetMockIssueStatuses();
+  resetMockSyncState();
+  boardRequestCount = 0;
 });
 
 afterAll(async () => {
@@ -454,6 +537,73 @@ describe('Extension UI E2E', () => {
     expect(trimmed).toContain('testos');
     expect(trimmed).toContain('in review');
     expect(trimmed).toContain('Done');
+
+    await page.close();
+  });
+
+  it('refreshes the board after applying a pipeline status transition', async () => {
+    stepCounter = 0;
+    const page = await browser.newPage();
+    await page.addInitScript(() => {
+      class FakeWebSocket {
+        static instances = [];
+        url;
+        onopen;
+        onmessage;
+        onclose;
+        onerror;
+
+        constructor(url: string) {
+          this.url = url;
+          FakeWebSocket.instances.push(this);
+          setTimeout(() => this.onopen?.(), 0);
+        }
+
+        close() {
+          this.onclose?.();
+        }
+
+        send() {}
+      }
+
+      (window as any).__jiranimoTestEmitWsMessage = (payload: unknown) => {
+        for (const socket of FakeWebSocket.instances) {
+          socket.onmessage?.({ data: JSON.stringify(payload) });
+        }
+      };
+
+      (window as any).WebSocket = FakeWebSocket;
+    });
+
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.goto(BOARD_URL());
+    await setupChromeMock(page);
+    await presetBoardConfig(page);
+    await injectScripts(page);
+    await page.waitForSelector('[data-jiranimo="JTEST-101"]', { timeout: 5000 });
+
+    mockSyncTasks = [{ key: 'JTEST-101', status: 'in-progress' }];
+    mockPendingEffects = [{
+      id: 'effect-refresh-1',
+      type: 'pipeline-status-sync',
+      status: 'pending',
+      taskKey: 'JTEST-101',
+      jiraHost: `127.0.0.1:${serverPort}`,
+      payload: { issueKey: 'JTEST-101', pipelineStatus: 'in-progress' },
+    }];
+    mockServerEpoch = 1;
+    mockServerRevision = 1;
+
+    await page.evaluate(() => {
+      (window as any).__jiranimoTestEmitWsMessage({
+        type: 'sync-needed',
+        serverEpoch: 1,
+        revision: 1,
+      });
+    });
+
+    await expect.poll(() => boardRequestCount, { timeout: 5000 }).toBeGreaterThan(1);
+    expect(mockIssueStatuses['JTEST-101']).toBe('In Progress');
 
     await page.close();
   });
