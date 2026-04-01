@@ -27,6 +27,8 @@
   const SCAN_DEBOUNCE = 500;
   const WS_RECONNECT_DELAY = 3000;
   const BOARD_REFRESH_DELAY = 1200;
+  const BOARD_PRESENCE_SYNC_DEBOUNCE = 1500;
+  const BOARD_PRESENCE_SYNC_INTERVAL_MS = 30000;
   const CARD_SELECTOR = '[data-testid="platform-board-kit.ui.card.card"]';
   const CARD_CONTENT_SELECTOR = [
     CARD_SELECTOR,
@@ -62,8 +64,16 @@
   let scanTimer = null;
   /** @type {number|null} */
   let boardRefreshTimer = null;
+  /** @type {number|null} */
+  let presenceSyncTimer = null;
+  /** @type {number|null} */
+  let presenceSyncInterval = null;
   /** @type {string|null} */
   let currentBoardId = null;
+  /** @type {boolean} */
+  let presenceSyncInFlight = false;
+  /** @type {boolean} */
+  let presenceSyncQueued = false;
 
   async function init() {
     log('Content script loaded on', location.href);
@@ -94,6 +104,9 @@
         startScanning();
       });
     } else {
+      if (!boardConfig.boardType) {
+        boardConfig = await BoardConfig.ensureMetadata(currentBoardId, boardConfig);
+      }
       log('Board config loaded:', JSON.stringify(boardConfig));
       startScanning();
     }
@@ -106,14 +119,33 @@
 
   function startScanning() {
     log('Starting card scanner');
-    setTimeout(() => scanCards(), 1000);
+    setTimeout(() => {
+      scanCards();
+      scheduleBoardPresenceSync(0);
+    }, 1000);
     observeCardChanges();
     connectWebSocket();
+    startBoardPresenceRefresh();
   }
 
   function debouncedScan() {
     if (scanTimer) clearTimeout(scanTimer);
     scanTimer = setTimeout(() => scanCards(), SCAN_DEBOUNCE);
+  }
+
+  function scheduleBoardPresenceSync(delay = BOARD_PRESENCE_SYNC_DEBOUNCE) {
+    if (presenceSyncTimer) clearTimeout(presenceSyncTimer);
+    presenceSyncTimer = setTimeout(() => {
+      presenceSyncTimer = null;
+      void syncBoardPresence();
+    }, delay);
+  }
+
+  function startBoardPresenceRefresh() {
+    if (presenceSyncInterval) return;
+    presenceSyncInterval = setInterval(() => {
+      void syncBoardPresence();
+    }, BOARD_PRESENCE_SYNC_INTERVAL_MS);
   }
 
   function scanCards() {
@@ -265,6 +297,97 @@
       jiraUrl: `${location.origin}/browse/${issueKey}`,
       projectKey: issueKey.split('-')[0],
     };
+  }
+
+  async function fetchPaginatedIssueKeys(path) {
+    const issueKeys = [];
+    const maxResults = 100;
+    let startAt = 0;
+
+    while (true) {
+      const separator = path.includes('?') ? '&' : '?';
+      const res = await fetch(`${location.origin}${path}${separator}startAt=${startAt}&maxResults=${maxResults}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error(`Issue membership fetch failed: ${res.status}`);
+      }
+
+      const data = await res.json();
+      const issues = Array.isArray(data.issues) ? data.issues : [];
+      issueKeys.push(...issues.map(issue => issue.key).filter(key => typeof key === 'string'));
+
+      const total = Number(data.total ?? 0);
+      const nextStartAt = startAt + issues.length;
+      if (data.isLast === true || issues.length === 0 || nextStartAt >= total) {
+        break;
+      }
+
+      startAt = nextStartAt;
+    }
+
+    return [...new Set(issueKeys)];
+  }
+
+  async function fetchCurrentBoardIssueKeys() {
+    if (!currentBoardId || !boardConfig?.boardType) {
+      return [];
+    }
+
+    if (boardConfig.boardType === 'scrum') {
+      const sprintRes = await fetch(`${location.origin}/rest/agile/1.0/board/${currentBoardId}/sprint?state=active`, {
+        credentials: 'include',
+      });
+      if (!sprintRes.ok) {
+        throw new Error(`Active sprint lookup failed: ${sprintRes.status}`);
+      }
+      const sprintData = await sprintRes.json();
+      const sprintId = sprintData.values?.[0]?.id;
+      if (!sprintId) {
+        return [];
+      }
+      return fetchPaginatedIssueKeys(`/rest/agile/1.0/sprint/${sprintId}/issue?fields=summary`);
+    }
+
+    return fetchPaginatedIssueKeys(`/rest/agile/1.0/board/${currentBoardId}/issue?fields=summary`);
+  }
+
+  async function syncBoardPresence() {
+    if (presenceSyncInFlight) {
+      presenceSyncQueued = true;
+      return;
+    }
+
+    presenceSyncInFlight = true;
+    try {
+      do {
+        presenceSyncQueued = false;
+
+        if (!currentBoardId || !boardConfig?.boardType) {
+          return;
+        }
+
+        const issueKeys = await fetchCurrentBoardIssueKeys();
+        const presenceResult = await serverFetch(`/api/boards/${currentBoardId}/presence`, 'PUT', {
+          jiraHost: location.host,
+          boardType: boardConfig.boardType,
+          projectKey: boardConfig.projectKey || undefined,
+          issueKeys,
+        });
+        if (!presenceResult.ok) {
+          throw new Error(presenceResult.error || presenceResult.data?.error || `Presence sync failed (${presenceResult.status})`);
+        }
+        log('Published board presence', {
+          boardId: currentBoardId,
+          boardType: boardConfig.boardType,
+          issueCount: issueKeys.length,
+        });
+      } while (presenceSyncQueued);
+    } catch (err) {
+      warn('Board presence sync failed:', err);
+    } finally {
+      presenceSyncInFlight = false;
+    }
   }
 
   /**
@@ -540,6 +663,19 @@
         log('Falling back to minimal issue payload for', issueKey);
       }
 
+      if (!currentBoardId || !boardConfig?.boardType) {
+        setDebugInfo({ issueKey, stage: 'missing-board-metadata', lastError: 'Board metadata unavailable' });
+        setBadgeState(icon, issueKey, 'failed', 'Board metadata unavailable — reload and retry');
+        return;
+      }
+
+      issueData = {
+        ...issueData,
+        boardId: currentBoardId,
+        boardType: boardConfig.boardType,
+        projectKey: boardConfig.projectKey || issueData.projectKey,
+      };
+
       /** @type {any} */
       setDebugInfo({ issueKey, stage: 'submit-task' });
       const result = await serverFetch('/api/tasks', 'POST', issueData);
@@ -601,6 +737,7 @@
           if (!(node instanceof Element)) continue;
           if (node.matches(CARD_CONTENT_SELECTOR) || node.querySelector(CARD_CONTENT_SELECTOR)) {
             debouncedScan();
+            scheduleBoardPresenceSync();
             return;
           }
         }
@@ -742,35 +879,6 @@
     }
   }
 
-  async function resetTasksMovedToTodo(tasks) {
-    const terminalTasks = tasks.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'interrupted');
-    if (terminalTasks.length === 0) return new Set();
-
-    const resetKeys = new Set();
-    try {
-      const keys = terminalTasks.map(t => t.key);
-      const jql = `key in (${keys.join(',')})`;
-      const jiraRes = await fetch(`${location.origin}/rest/api/3/search/jql`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ jql, fields: ['status'], maxResults: 50 }),
-      });
-      if (!jiraRes.ok) return resetKeys;
-      const jiraData = await jiraRes.json();
-      for (const issue of jiraData.issues || []) {
-        const jiraStatus = issue.fields?.status?.name?.toLowerCase() || '';
-        if (jiraStatus.includes('to do') || jiraStatus.includes('todo')) {
-          resetKeys.add(issue.key);
-          serverFetch(`/api/tasks/${issue.key}`, 'DELETE').catch(() => {});
-        }
-      }
-    } catch {
-      // ignore best-effort reset checks
-    }
-    return resetKeys;
-  }
-
   async function syncTaskStatuses() {
     try {
       /** @type {any} */
@@ -778,14 +886,12 @@
       if (!syncResult.ok) return;
       const snapshot = syncResult.data;
       const tasks = Array.isArray(snapshot.tasks) ? snapshot.tasks : [];
-      const resetKeys = await resetTasksMovedToTodo(tasks);
 
       const nextStatuses = {};
       const nextPrUrls = {};
       const nextRecoveryStates = {};
 
       for (const task of tasks) {
-        if (resetKeys.has(task.key)) continue;
         nextStatuses[task.key] = task.status;
         nextRecoveryStates[task.key] = task.recoveryState || 'none';
         if (task.prUrl) nextPrUrls[task.key] = task.prUrl;
@@ -805,7 +911,6 @@
       serverRevision = Number(snapshot.revision || 0);
 
       for (const task of tasks) {
-        if (resetKeys.has(task.key)) continue;
         const badge = document.querySelector(`[${BADGE_ATTR}="${task.key}"]`);
         if (badge) {
           updateBadgeState(badge, task.key, task.status);
@@ -834,6 +939,7 @@
     ws.onopen = async () => {
       log('WebSocket connected');
       await syncTaskStatuses();
+      await syncBoardPresence();
     };
 
     ws.onmessage = (event) => {

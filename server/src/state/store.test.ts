@@ -15,6 +15,7 @@ function makeTask(overrides?: Partial<TaskRecord>): TaskRecord {
     labels: ['ai-ready'],
     jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
     status: 'queued',
+    trackedBoards: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -168,6 +169,42 @@ describe('StateStore', () => {
     expect(claimed.claimedBy).toBe('client-2');
     expect(store.ackEffect('effect-2')).toBe(true);
     expect(store.getEffect('effect-2')).toBeUndefined();
+    store.destroy();
+  });
+
+  it('reconciles board presence and stores board snapshots', () => {
+    const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
+    store.upsertTask(makeTask({ trackedBoards: ['test.atlassian.net:board-1'] }));
+
+    const result = store.reconcileBoardPresence({
+      boardId: 'board-1',
+      jiraHost: 'test.atlassian.net',
+      boardType: 'scrum',
+      projectKey: 'PROJ',
+      issueKeys: ['PROJ-1'],
+    });
+
+    expect(result.deletedTaskKeys).toEqual([]);
+    expect(store.getTask('PROJ-1')?.trackedBoards).toEqual(['test.atlassian.net:board-1']);
+    expect(store.getTask('PROJ-1')?.lastSeenOnBoardAt).toBeDefined();
+    expect(store.getBoardSnapshots('test.atlassian.net')).toHaveLength(1);
+    store.destroy();
+  });
+
+  it('removes tasks when their last tracked board no longer contains them', () => {
+    const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
+    store.upsertTask(makeTask({ trackedBoards: ['test.atlassian.net:board-1'] }));
+
+    const result = store.reconcileBoardPresence({
+      boardId: 'board-1',
+      jiraHost: 'test.atlassian.net',
+      boardType: 'scrum',
+      projectKey: 'PROJ',
+      issueKeys: [],
+    });
+
+    expect(result.deletedTaskKeys).toEqual(['PROJ-1']);
+    expect(store.getTask('PROJ-1')).toBeUndefined();
     store.destroy();
   });
 });

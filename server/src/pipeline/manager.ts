@@ -5,9 +5,9 @@ import { homedir, tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
 import type { ServerConfig } from '../config/types.js';
-import type { TaskRecord, TaskStatus, EffectRecord } from '../state/types.js';
+import type { TaskRecord, TaskStatus, EffectRecord, JiraBoardType } from '../state/types.js';
 import type { ClaudeEvent, ExecutionResult, TaskInput } from '../claude/types.js';
-import { StateStore } from '../state/store.js';
+import { StateStore, boardTrackingKey } from '../state/store.js';
 import { transition } from './state-machine.js';
 import { buildPrompt, planFilePath } from '../claude/prompt-builder.js';
 import { classifyTask } from '../claude/task-classifier.js';
@@ -89,6 +89,13 @@ export class PipelineManager extends EventEmitter {
       existing.prUrl !== undefined &&
       (input.comments ?? []).some(c => /screenshot/i.test(c.body));
 
+    const now = new Date().toISOString();
+    const jiraHost = jiraHostFromUrl(input.jiraUrl);
+    const initialTrackedBoards = [...new Set([
+      ...(existing?.trackedBoards ?? []),
+      boardTrackingKey(jiraHost, input.boardId),
+    ])];
+
     const task: TaskRecord = {
       key: input.key,
       summary: input.summary,
@@ -117,8 +124,11 @@ export class PipelineManager extends EventEmitter {
       workspacePath: existing?.workspacePath ?? workspacePathForTask(input.key),
       attempt: existing?.attempt ?? 0,
       recoveryState: 'none',
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      trackedBoards: initialTrackedBoards,
+      submittedFromBoardId: input.boardId,
+      lastSeenOnBoardAt: now,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
     };
 
     const persisted = this.store.upsertTask(task);
@@ -128,6 +138,24 @@ export class PipelineManager extends EventEmitter {
     this.emitSyncNeeded();
     setImmediate(() => this.processQueue());
     return persisted;
+  }
+
+  syncBoardPresence(input: {
+    boardId: string;
+    jiraHost: string;
+    boardType: JiraBoardType;
+    projectKey?: string;
+    issueKeys: string[];
+  }): {
+    boardKey: string;
+    syncedAt: string;
+    deletedTaskKeys: string[];
+    updatedTaskKeys: string[];
+  } {
+    const result = this.store.reconcileBoardPresence(input);
+    this.store.flushSync();
+    this.emitSyncNeeded();
+    return result;
   }
 
   retryTask(key: string): TaskRecord {

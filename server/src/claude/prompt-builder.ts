@@ -1,6 +1,24 @@
-import type { TaskInput } from './types.js';
 import type { ServerConfig } from '../config/types.js';
 import type { TaskMode } from '../state/types.js';
+
+interface PromptTask {
+  key: string;
+  summary: string;
+  description: string;
+  acceptanceCriteria?: string;
+  priority: string;
+  issueType: string;
+  labels: string[];
+  comments: Array<{ author: string; body: string; created?: string }>;
+  subtasks?: Array<{ key: string; summary: string; status: string }>;
+  linkedIssues?: Array<{ type: string; key: string; summary: string; status: string }>;
+  attachments?: Array<{ filename: string; mimeType: string; url: string }>;
+  assignee?: string;
+  reporter?: string;
+  components?: string[];
+  parentKey?: string;
+  jiraUrl: string;
+}
 
 export const planFilePath = (key: string) => `/tmp/jiranimo-${key}-plan.md`;
 
@@ -21,7 +39,7 @@ interface RecoveryContext {
 }
 
 export function buildPrompt(
-  task: TaskInput,
+  task: PromptTask,
   config: ServerConfig,
   repoPath: string,
   mode: TaskMode = 'implement',

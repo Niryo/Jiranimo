@@ -12,6 +12,9 @@ const baseTask: TaskInput = {
   labels: ['frontend', 'ai-ready'],
   comments: [],
   jiraUrl: 'https://test.atlassian.net/browse/PROJ-123',
+  boardId: '2',
+  boardType: 'scrum',
+  projectKey: 'PROJ',
 };
 
 const baseConfig: ServerConfig = {

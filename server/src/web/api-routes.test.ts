@@ -38,6 +38,9 @@ const validTask = {
   issueType: 'Story',
   labels: ['ai-ready'],
   jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
+  boardId: 'board-1',
+  boardType: 'scrum',
+  projectKey: 'PROJ',
 };
 
 let tmpDir: string;
@@ -90,7 +93,7 @@ describe('POST /api/tasks', () => {
     store.upsertTask({
       key: 'PROJ-1', summary: 'Test', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-      status: 'queued', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'queued', trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
 
@@ -154,7 +157,7 @@ describe('DELETE /api/tasks/:key', () => {
     store.upsertTask({
       key: 'PROJ-1', summary: 'Delete me', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-      status: 'completed', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'completed', trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
 
@@ -183,7 +186,7 @@ describe('POST /api/tasks/:key/retry', () => {
     store.upsertTask({
       key: 'PROJ-1', summary: 'Test', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-      status: 'queued', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'queued', trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
 
@@ -197,7 +200,7 @@ describe('POST /api/tasks/:key/cancel-resume', () => {
     store.upsertTask({
       key: 'PROJ-INT', summary: 'Interrupted', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-INT',
-      status: 'interrupted', recoveryState: 'resume-pending', resumeAfter: new Date(Date.now() + 30_000).toISOString(),
+      status: 'interrupted', trackedBoards: ['test.atlassian.net:board-1'], recoveryState: 'resume-pending', resumeAfter: new Date(Date.now() + 30_000).toISOString(),
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
@@ -235,6 +238,45 @@ describe('Effects APIs', () => {
   });
 });
 
+describe('PUT /api/boards/:boardId/presence', () => {
+  it('stores board presence and updates tracked boards for matching tasks', async () => {
+    await request(app).post('/api/tasks').send(validTask);
+
+    const res = await request(app)
+      .put('/api/boards/board-2/presence')
+      .send({
+        jiraHost: 'test.atlassian.net',
+        boardType: 'kanban',
+        projectKey: 'PROJ',
+        issueKeys: ['PROJ-1'],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.deletedTaskKeys).toEqual([]);
+    expect(store.getTask('PROJ-1')?.trackedBoards).toEqual([
+      'test.atlassian.net:board-1',
+      'test.atlassian.net:board-2',
+    ]);
+  });
+
+  it('deletes a task when its last tracked board reports it absent', async () => {
+    await request(app).post('/api/tasks').send(validTask);
+
+    const res = await request(app)
+      .put('/api/boards/board-1/presence')
+      .send({
+        jiraHost: 'test.atlassian.net',
+        boardType: 'scrum',
+        projectKey: 'PROJ',
+        issueKeys: [],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.deletedTaskKeys).toEqual(['PROJ-1']);
+    expect(store.getTask('PROJ-1')).toBeUndefined();
+  });
+});
+
 describe('GET /api/tasks/:key/logs', () => {
   it('returns 404 for unknown task', async () => {
     const res = await request(app).get('/api/tasks/NOPE-1/logs');
@@ -245,7 +287,7 @@ describe('GET /api/tasks/:key/logs', () => {
     store.upsertTask({
       key: 'PROJ-2', summary: 'No logs', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-2',
-      status: 'queued', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'queued', trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
 

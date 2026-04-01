@@ -1,3 +1,5 @@
+import type { JiraBoardType } from '../state/types.js';
+
 export interface TaskInput {
   key: string;
   summary: string;
@@ -15,6 +17,9 @@ export interface TaskInput {
   components?: string[];
   parentKey?: string;
   jiraUrl: string;
+  boardId: string;
+  boardType: JiraBoardType;
+  projectKey?: string;
 }
 
 export interface ExecutionResult {

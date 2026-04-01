@@ -4,6 +4,7 @@ export type RecoveryState = 'none' | 'resume-pending' | 'resume-cancelled' | 're
 export type ResumeMode = 'claude-session' | 'fresh-recovery';
 export type EffectType = 'pipeline-status-sync' | 'completion-comment' | 'plan-comment';
 export type EffectStatus = 'pending' | 'claimed';
+export type JiraBoardType = 'scrum' | 'kanban';
 
 export interface EffectRecord {
   id: string;
@@ -58,10 +59,22 @@ export interface TaskRecord {
   resumeMode?: ResumeMode;
   screenshotFailed?: boolean;
   screenshotFailReason?: string;
+  trackedBoards: string[];
+  lastSeenOnBoardAt?: string;
+  submittedFromBoardId?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
   completedAt?: string;
+}
+
+export interface BoardPresenceSnapshot {
+  boardId: string;
+  jiraHost: string;
+  boardType: JiraBoardType;
+  projectKey?: string;
+  issueKeys: string[];
+  syncedAt: string;
 }
 
 export interface AppMeta {
@@ -74,4 +87,5 @@ export interface AppState {
   tasks: Record<string, TaskRecord>;
   queue: string[];
   effects: Record<string, EffectRecord>;
+  boards: Record<string, BoardPresenceSnapshot>;
 }

@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import type {
   AppMeta,
   AppState,
+  BoardPresenceSnapshot,
   EffectRecord,
   TaskRecord,
   TaskStatus,
@@ -21,11 +22,40 @@ function emptyState(): AppState {
     tasks: {},
     queue: [],
     effects: {},
+    boards: {},
   };
 }
 
 function cloneTask(task: TaskRecord): TaskRecord {
   return JSON.parse(JSON.stringify(task)) as TaskRecord;
+}
+
+function cloneBoardSnapshot(snapshot: BoardPresenceSnapshot): BoardPresenceSnapshot {
+  return JSON.parse(JSON.stringify(snapshot)) as BoardPresenceSnapshot;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item): item is string => typeof item === 'string' && item.length > 0))];
+}
+
+function normalizeTask(task: TaskRecord): TaskRecord {
+  return {
+    ...task,
+    trackedBoards: normalizeStringArray(task.trackedBoards),
+  };
+}
+
+function taskJiraHost(task: TaskRecord): string {
+  try {
+    return new URL(task.jiraUrl).host;
+  } catch {
+    return '';
+  }
+}
+
+export function boardTrackingKey(jiraHost: string, boardId: string): string {
+  return `${jiraHost}:${boardId}`;
 }
 
 export class StateStore {
@@ -44,7 +74,13 @@ export class StateStore {
     try {
       const raw = readFileSync(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<AppState> & { tasks?: Record<string, TaskRecord> };
-      const tasks = parsed?.tasks && typeof parsed.tasks === 'object' ? parsed.tasks : {};
+      const tasks = parsed?.tasks && typeof parsed.tasks === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.tasks)
+              .map(([key, task]) => [key, normalizeTask(task)]),
+          )
+        : {};
+      const boards = parsed?.boards && typeof parsed.boards === 'object' ? parsed.boards : {};
       return {
         meta: parsed?.meta && typeof parsed.meta === 'object'
           ? {
@@ -55,6 +91,7 @@ export class StateStore {
         tasks,
         queue: Array.isArray(parsed?.queue) ? parsed.queue.filter((key): key is string => typeof key === 'string') : [],
         effects: parsed?.effects && typeof parsed.effects === 'object' ? parsed.effects : {},
+        boards,
       };
     } catch {
       return emptyState();
@@ -143,7 +180,7 @@ export class StateStore {
   }
 
   upsertTask(task: TaskRecord): TaskRecord {
-    const incoming = cloneTask(task);
+    const incoming = normalizeTask(cloneTask(task));
     this.mutate(() => {
       incoming.updatedAt = new Date().toISOString();
       incoming.attempt = incoming.attempt ?? 0;
@@ -228,6 +265,83 @@ export class StateStore {
       .filter(effect => !jiraHost || effect.jiraHost === jiraHost)
       .map(effect => ({ ...effect }))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  getBoardSnapshots(jiraHost?: string): BoardPresenceSnapshot[] {
+    return Object.values(this.state.boards)
+      .filter(snapshot => !jiraHost || snapshot.jiraHost === jiraHost)
+      .map(cloneBoardSnapshot)
+      .sort((a, b) => a.boardId.localeCompare(b.boardId));
+  }
+
+  reconcileBoardPresence(input: Omit<BoardPresenceSnapshot, 'syncedAt'> & { syncedAt?: string }): {
+    boardKey: string;
+    syncedAt: string;
+    deletedTaskKeys: string[];
+    updatedTaskKeys: string[];
+  } {
+    const syncedAt = input.syncedAt ?? new Date().toISOString();
+    const boardKey = boardTrackingKey(input.jiraHost, input.boardId);
+    const issueKeys = normalizeStringArray(input.issueKeys);
+    const issueKeySet = new Set(issueKeys);
+    const deletedTaskKeys: string[] = [];
+    const updatedTaskKeys = new Set<string>();
+
+    this.mutate(() => {
+      this.state.boards[boardKey] = {
+        boardId: input.boardId,
+        jiraHost: input.jiraHost,
+        boardType: input.boardType,
+        projectKey: input.projectKey,
+        issueKeys,
+        syncedAt,
+      };
+
+      for (const [taskKey, task] of Object.entries(this.state.tasks)) {
+        if (taskJiraHost(task) !== input.jiraHost) {
+          continue;
+        }
+
+        const trackedBoards = normalizeStringArray(task.trackedBoards);
+        const tracksBoard = trackedBoards.includes(boardKey);
+        const isPresent = issueKeySet.has(taskKey);
+
+        if (isPresent) {
+          task.trackedBoards = tracksBoard ? trackedBoards : [...trackedBoards, boardKey];
+          task.lastSeenOnBoardAt = syncedAt;
+          task.updatedAt = syncedAt;
+          updatedTaskKeys.add(taskKey);
+          continue;
+        }
+
+        if (!tracksBoard) {
+          continue;
+        }
+
+        const nextTrackedBoards = trackedBoards.filter((candidate) => candidate !== boardKey);
+        if (nextTrackedBoards.length === 0) {
+          delete this.state.tasks[taskKey];
+          this.state.queue = this.state.queue.filter((existing) => existing !== taskKey);
+          for (const [effectId, effect] of Object.entries(this.state.effects)) {
+            if (effect.taskKey === taskKey) {
+              delete this.state.effects[effectId];
+            }
+          }
+          deletedTaskKeys.push(taskKey);
+        } else {
+          task.trackedBoards = nextTrackedBoards;
+          task.updatedAt = syncedAt;
+          updatedTaskKeys.add(taskKey);
+        }
+      }
+    });
+
+    return {
+      boardKey,
+      syncedAt,
+      deletedTaskKeys,
+      updatedTaskKeys: [...updatedTaskKeys],
+    };
   }
 
   claimEffect(id: string, clientId: string, leaseMs: number): EffectRecord {

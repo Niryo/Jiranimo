@@ -1,7 +1,7 @@
 /**
  * Guided board configuration UI.
  * Shows a modal on first visit to an unconfigured board.
- * Reads column names from Jira REST API (via background worker).
+ * Reads board metadata directly from Jira REST API.
  */
 
 // @ts-check
@@ -14,11 +14,13 @@ const BoardConfig = {
    * @param {function} onSave - called with the saved config
    */
   async show(boardId, onSave) {
-    console.log('[Jiranimo] Loading board columns from API...');
+    console.log('[Jiranimo] Loading board details from API...');
 
-    // Get columns from Jira API via background worker
-    const columns = await this._fetchBoardColumns(boardId);
-    console.log('[Jiranimo] Board columns:', columns);
+    const details = await this._fetchBoardDetails(boardId);
+    const columns = details.columns;
+    const boardType = details.boardType || 'scrum';
+    const projectKey = details.projectKey || this._extractProjectKey();
+    console.log('[Jiranimo] Board details:', details);
 
     if (columns.length === 0) {
       console.warn('[Jiranimo] No columns found — falling back to defaults');
@@ -78,11 +80,11 @@ const BoardConfig = {
       const inReviewCol = inReviewSelect.value;
 
       const transitions = await this._resolveTransitions(inProgressCol, inReviewCol);
-      const projectKey = this._extractProjectKey();
 
       const config = {
         boardId,
         projectKey,
+        boardType,
         transitions,
       };
 
@@ -95,28 +97,74 @@ const BoardConfig = {
   },
 
   /**
-   * Fetch board columns from Jira Agile REST API.
-   * Calls the API directly from the content script (session cookies are available).
+   * Ensure older saved configs have the metadata needed for board presence sync.
    * @param {string} boardId
-   * @returns {Promise<string[]>}
+   * @param {Record<string, unknown>} config
+   * @returns {Promise<Record<string, unknown>>}
    */
-  async _fetchBoardColumns(boardId) {
+  async ensureMetadata(boardId, config) {
+    const details = await this._fetchBoardDetails(boardId);
+    const enriched = {
+      ...config,
+      projectKey: config.projectKey || details.projectKey || this._extractProjectKey(),
+      boardType: config.boardType || details.boardType || 'scrum',
+    };
+
+    if (enriched.projectKey !== config.projectKey || enriched.boardType !== config.boardType) {
+      await chrome.storage.local.set({ [`boardConfig_${boardId}`]: enriched });
+    }
+
+    return enriched;
+  },
+
+  /**
+   * Fetch board metadata and columns from Jira Agile REST API.
+   * Calls the APIs directly from the content script (session cookies are available).
+   * @param {string} boardId
+   * @returns {Promise<{boardType: ('scrum'|'kanban'|null), projectKey: string, columns: string[]}>}
+   */
+  async _fetchBoardDetails(boardId) {
+    const host = location.origin;
+    const boardUrl = `${host}/rest/agile/1.0/board/${boardId}`;
+    const configUrl = `${host}/rest/agile/1.0/board/${boardId}/configuration`;
+
     try {
-      const host = location.origin; // e.g. "https://niryosef89.atlassian.net"
-      const url = `${host}/rest/agile/1.0/board/${boardId}/configuration`;
-      console.log('[Jiranimo] Fetching board config from:', url);
-      const res = await fetch(url, { credentials: 'include' });
-      if (!res.ok) {
-        console.warn('[Jiranimo] Board config API returned:', res.status);
-        return [];
+      console.log('[Jiranimo] Fetching board metadata from:', boardUrl);
+      console.log('[Jiranimo] Fetching board configuration from:', configUrl);
+
+      const [boardRes, configRes] = await Promise.all([
+        fetch(boardUrl, { credentials: 'include' }),
+        fetch(configUrl, { credentials: 'include' }),
+      ]);
+
+      let boardType = null;
+      let projectKey = this._extractProjectKey();
+      if (boardRes.ok) {
+        const boardData = await boardRes.json();
+        if (boardData.type === 'scrum' || boardData.type === 'kanban') {
+          boardType = boardData.type;
+        }
+        projectKey = boardData.location?.projectKey || projectKey;
+      } else {
+        console.warn('[Jiranimo] Board metadata API returned:', boardRes.status);
       }
-      const data = await res.json();
-      const columns = (data.columnConfig?.columns || []).map(c => c.name);
-      console.log('[Jiranimo] Columns from API:', columns);
-      return columns;
+
+      let columns = [];
+      if (configRes.ok) {
+        const configData = await configRes.json();
+        columns = (configData.columnConfig?.columns || []).map(c => c.name);
+      } else {
+        console.warn('[Jiranimo] Board config API returned:', configRes.status);
+      }
+
+      return { boardType, projectKey, columns };
     } catch (err) {
-      console.warn('[Jiranimo] Failed to fetch board columns:', err);
-      return [];
+      console.warn('[Jiranimo] Failed to fetch board details:', err);
+      return {
+        boardType: null,
+        projectKey: this._extractProjectKey(),
+        columns: [],
+      };
     }
   },
 

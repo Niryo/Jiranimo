@@ -156,6 +156,8 @@ afterAll(async () => {
 
 describe('Full Flow E2E', () => {
   it('badge click → real Claude → success.txt committed to branch', async () => {
+    await cleanupStaleTestIssues();
+
     // ── 1. Set up git repo ─────────────────────────────────────────────────
     reposRoot = mkdtempSync(join(tmpdir(), 'jiranimo-ff-repos-'));
     const repoPath = createPlaygroundRepo(reposRoot);
@@ -194,6 +196,7 @@ describe('Full Flow E2E', () => {
           [`boardConfig_${boardId}`]: {
             boardId: String(boardId),
             projectKey: 'JTEST',
+            boardType: 'scrum',
             triggerLabel: 'ai-ready',
             transitions: {
               inProgress: inProgress ? { id: inProgress.id, name: inProgress.name } : null,

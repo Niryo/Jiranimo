@@ -53,6 +53,9 @@ const sampleInput: TaskInput = {
   labels: ['ai-ready'],
   comments: [],
   jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
+  boardId: 'board-1',
+  boardType: 'scrum',
+  projectKey: 'PROJ',
 };
 
 let tmpDir: string;
@@ -158,6 +161,7 @@ describe('PipelineManager', () => {
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-RECOVER',
       status: 'in-progress',
+      trackedBoards: [],
       claudeSessionId: 'sess-123',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -186,6 +190,7 @@ describe('PipelineManager', () => {
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-CANCEL',
       status: 'interrupted',
+      trackedBoards: [],
       recoveryState: 'resume-pending',
       resumeAfter: new Date(Date.now() + 30_000).toISOString(),
       createdAt: new Date().toISOString(),
@@ -215,6 +220,7 @@ describe('PipelineManager', () => {
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-SESSION',
       status: 'interrupted',
+      trackedBoards: [],
       recoveryState: 'resume-cancelled',
       claudeSessionId: 'sess-abc',
       createdAt: new Date().toISOString(),
@@ -244,6 +250,7 @@ describe('PipelineManager', () => {
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-FRESH',
       status: 'interrupted',
+      trackedBoards: [],
       recoveryState: 'resume-cancelled',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -312,7 +319,7 @@ describe('PipelineManager', () => {
       key: 'PROJ-1', summary: 'Test', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-      status: 'in-progress', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'in-progress', trackedBoards: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
 
     mgr.completeViaAgent('PROJ-1', 'Implemented and PR created');
@@ -348,6 +355,81 @@ describe('PipelineManager', () => {
     await new Promise(r => setTimeout(r, 200));
 
     expect(vi.mocked(pickRepo)).toHaveBeenCalledWith('/tmp/repos', expect.objectContaining({ key: 'PROJ-ROOT' }));
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('seeds trackedBoards from the submitting board', () => {
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    const task = mgr.submitTask(sampleInput);
+
+    expect(task.trackedBoards).toEqual(['test.atlassian.net:board-1']);
+    expect(task.submittedFromBoardId).toBe('board-1');
+    expect(task.lastSeenOnBoardAt).toBeDefined();
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('keeps completed tasks while a tracked board still reports them present', async () => {
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    mgr.submitTask(sampleInput);
+    await new Promise(r => setTimeout(r, 200));
+
+    const result = mgr.syncBoardPresence({
+      boardId: 'board-1',
+      jiraHost: 'test.atlassian.net',
+      boardType: 'scrum',
+      projectKey: 'PROJ',
+      issueKeys: ['PROJ-1'],
+    });
+
+    expect(result.deletedTaskKeys).toEqual([]);
+    expect(store.getTask('PROJ-1')?.status).toBe('completed');
+    expect(store.getTask('PROJ-1')?.trackedBoards).toContain('test.atlassian.net:board-1');
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('deletes a task when its last tracked board no longer reports it', () => {
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    mgr.submitTask(sampleInput);
+
+    const result = mgr.syncBoardPresence({
+      boardId: 'board-1',
+      jiraHost: 'test.atlassian.net',
+      boardType: 'scrum',
+      projectKey: 'PROJ',
+      issueKeys: [],
+    });
+
+    expect(result.deletedTaskKeys).toEqual(['PROJ-1']);
+    expect(store.getTask('PROJ-1')).toBeUndefined();
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('retains a task if another tracked board still reports it present', () => {
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    mgr.submitTask(sampleInput);
+
+    mgr.syncBoardPresence({
+      boardId: 'board-2',
+      jiraHost: 'test.atlassian.net',
+      boardType: 'kanban',
+      projectKey: 'PROJ',
+      issueKeys: ['PROJ-1'],
+    });
+
+    const result = mgr.syncBoardPresence({
+      boardId: 'board-1',
+      jiraHost: 'test.atlassian.net',
+      boardType: 'scrum',
+      projectKey: 'PROJ',
+      issueKeys: [],
+    });
+
+    expect(result.deletedTaskKeys).toEqual([]);
+    expect(store.getTask('PROJ-1')?.trackedBoards).toEqual(['test.atlassian.net:board-2']);
     mgr.shutdown();
     store.destroy();
   });

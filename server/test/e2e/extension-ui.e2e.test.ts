@@ -26,6 +26,7 @@ let mockPendingEffects: Array<Record<string, unknown>> = [];
 let mockServerEpoch = 0;
 let mockServerRevision = 0;
 let boardRequestCount = 0;
+let mockBoardPresencePayloads: Array<Record<string, unknown>> = [];
 
 function resetMockSprintIssues() {
   mockSprintIssues = [
@@ -50,6 +51,7 @@ function resetMockSyncState() {
   mockPendingEffects = [];
   mockServerEpoch = 0;
   mockServerRevision = 0;
+  mockBoardPresencePayloads = [];
 }
 
 const BOARD_URL = () => `http://127.0.0.1:${serverPort}/jira/software/projects/JTEST/boards/1`;
@@ -74,6 +76,15 @@ function startMockServer(): Promise<number> {
           res.writeHead(200, { 'Content-Type': req.url.endsWith('.css') ? 'text/css' : 'application/javascript' });
           res.end(content);
         } catch { res.writeHead(404); res.end(); }
+        return;
+      }
+      if (req.url?.match(/\/rest\/agile\/1\.0\/board\/\d+$/)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          id: 1,
+          type: 'scrum',
+          location: { projectKey: 'JTEST' },
+        }));
         return;
       }
       // Mock Jira search API for label fetching
@@ -188,6 +199,21 @@ function startMockServer(): Promise<number> {
         res.end(JSON.stringify({ queued: true }));
         return;
       }
+      if (req.method === 'PUT' && req.url === '/api/boards/1/presence') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+          mockBoardPresencePayloads.push(JSON.parse(body || '{}'));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            boardKey: '127.0.0.1:1',
+            syncedAt: new Date().toISOString(),
+            deletedTaskKeys: [],
+            updatedTaskKeys: [],
+          }));
+        });
+        return;
+      }
       // Mock Jira Agile API for board configuration
       if (req.url?.match(/\/rest\/agile\/.*\/board\/\d+\/configuration/)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -257,7 +283,7 @@ async function setupChromeMock(page: Page) {
 async function presetBoardConfig(page: Page) {
   await page.evaluate(() => {
     (window as any).__jiranimoStorage['boardConfig_1'] = {
-      boardId: '1', projectKey: 'JTEST',
+      boardId: '1', projectKey: 'JTEST', boardType: 'scrum',
       transitions: { inProgress: { name: 'In Progress', id: '21' }, inReview: { name: 'Done', id: '31' } },
     };
   });

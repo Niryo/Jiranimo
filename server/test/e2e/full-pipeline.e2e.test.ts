@@ -133,6 +133,9 @@ describe('Full Pipeline E2E', () => {
         issueType: 'Task',
         labels: ['ai-ready'],
         jiraUrl: `https://${process.env.JIRA_HOST}/browse/${issueKey}`,
+        boardId: 'board-1',
+        boardType: 'scrum',
+        projectKey: 'JTEST',
       }),
     });
     expect(submitRes.status).toBe(201);
@@ -180,6 +183,9 @@ describe('Full Pipeline E2E', () => {
         issueType: 'Task',
         labels: ['ai-ready'],
         jiraUrl: `https://${process.env.JIRA_HOST}/browse/${issueKey}`,
+        boardId: 'board-1',
+        boardType: 'scrum',
+        projectKey: 'JTEST',
       }),
     });
 
