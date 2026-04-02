@@ -405,8 +405,10 @@ export class PipelineManager extends EventEmitter {
 
     if (newStatus === 'completed') {
       this.createPipelineStatusEffect(updated, 'completed');
-      if (updated.taskMode === 'plan' && updated.planContent) {
-        this.createPlanCommentEffect(updated);
+      if (updated.taskMode === 'plan') {
+        if (updated.planContent) {
+          this.createPlanCommentEffect(updated);
+        }
       } else {
         this.createCompletionCommentEffect(updated);
       }
@@ -466,6 +468,17 @@ export class PipelineManager extends EventEmitter {
         hash: sha1(body),
       },
     });
+  }
+
+  private ensurePlanCommentEffect(task: TaskRecord): void {
+    const effectId = `${task.key}:plan-comment:${task.runId ?? task.attempt ?? 0}`;
+    if (!task.planContent || this.store.getEffect(effectId)) {
+      return;
+    }
+
+    this.createPlanCommentEffect(task);
+    this.store.flushSync();
+    this.emitSyncNeeded();
   }
 
   private buildCompletionComment(task: TaskRecord): string {
@@ -667,6 +680,11 @@ export class PipelineManager extends EventEmitter {
           this.store.flushSync();
           this.emit('task-plan-ready', key, planContent);
           this.emitSyncNeeded();
+
+          const completedTask = this.store.getTask(key);
+          if (completedTask?.status === 'completed' && completedTask.taskMode === 'plan') {
+            this.ensurePlanCommentEffect(completedTask);
+          }
         }
       }
 

@@ -3,9 +3,10 @@ import { PipelineManager } from './manager.js';
 import { StateStore } from '../state/store.js';
 import type { ServerConfig } from '../config/types.js';
 import type { TaskInput } from '../claude/types.js';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { planFilePath } from '../claude/prompt-builder.js';
 
 // Mock Claude executor so unit tests are fast
 vi.mock('../claude/executor.js', () => ({
@@ -327,6 +328,45 @@ describe('PipelineManager', () => {
     const task = store.getTask('PROJ-1');
     expect(task?.status).toBe('completed');
     expect(task?.claudeResultText).toBe('Implemented and PR created');
+    store.destroy();
+  });
+
+  it('posts a plan comment after plan content is loaded for plan tasks', async () => {
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    const { classifyTask } = await import('../claude/task-classifier.js');
+    const planTaskKey = 'PROJ-PLAN';
+    const planPath = planFilePath(planTaskKey);
+
+    vi.mocked(classifyTask).mockResolvedValue('plan');
+
+    let mgr!: PipelineManager;
+    vi.mocked(executeClaudeCode).mockImplementationOnce(async () => {
+      writeFileSync(planPath, '# Technical Plan\n\n1. Investigate\n2. Implement\n', 'utf-8');
+      mgr.completeViaAgent(planTaskKey, 'Plan written');
+      return { success: true, resultText: 'Plan written', sessionId: 'sess-plan', costUsd: 0.1, durationMs: 100 };
+    });
+
+    mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    mgr.submitTask({ ...sampleInput, key: planTaskKey });
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const task = store.getTask(planTaskKey);
+    const effects = store.getPendingEffects('test.atlassian.net');
+    const planEffect = effects.find((effect) => effect.type === 'plan-comment' && effect.taskKey === planTaskKey);
+    const completionEffect = effects.find((effect) => effect.type === 'completion-comment' && effect.taskKey === planTaskKey);
+
+    expect(task?.status).toBe('completed');
+    expect(task?.planContent).toContain('# Technical Plan');
+    expect(planEffect?.payload.body).toContain('# Technical Plan');
+    expect(completionEffect).toBeUndefined();
+
+    try {
+      rmSync(planPath, { force: true });
+    } catch {
+      // ignore
+    }
+    mgr.shutdown();
     store.destroy();
   });
 

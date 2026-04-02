@@ -351,7 +351,7 @@ export class StateStore {
       const effect = this.state.effects[id];
       if (!effect) throw new Error(`Effect ${id} not found`);
       const expired = effect.claimExpiresAt ? new Date(effect.claimExpiresAt).getTime() <= now.getTime() : false;
-      if (effect.status === 'claimed' && effect.claimedBy !== clientId && !expired) {
+      if (effect.status === 'claimed' && !expired) {
         throw new Error(`Effect ${id} is already claimed`);
       }
       effect.status = 'claimed';

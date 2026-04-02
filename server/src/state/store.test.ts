@@ -172,6 +172,22 @@ describe('StateStore', () => {
     store.destroy();
   });
 
+  it('does not allow the same client to reclaim an active effect lease', () => {
+    const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
+    store.beginServerEpoch();
+    store.createEffect({
+      id: 'effect-3',
+      type: 'plan-comment',
+      taskKey: 'PROJ-3',
+      jiraHost: 'test.atlassian.net',
+      payload: { issueKey: 'PROJ-3', body: 'Plan', hash: 'hash' },
+    });
+
+    store.claimEffect('effect-3', 'client-3', 10_000);
+    expect(() => store.claimEffect('effect-3', 'client-3', 10_000)).toThrow('already claimed');
+    store.destroy();
+  });
+
   it('reconciles board presence and stores board snapshots', () => {
     const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
     store.upsertTask(makeTask({ trackedBoards: ['test.atlassian.net:board-1'] }));
