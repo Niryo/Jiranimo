@@ -2,10 +2,13 @@
   "name": "jiranimo",
   "private": true,
   "workspaces": [
+    "packages/assets",
     "server",
     "extension"
   ],
   "scripts": {
+    "assets:sync": "npm run sync --workspace=@jiranimo/assets && npm run build --workspace=jiranimo-extension",
+    "postinstall": "npm run assets:sync",
     "dev": "bash scripts/dev.sh ./gitPlaygrounds",
     "dev:self": "bash scripts/dev.sh .",
     "dev:server": "bash scripts/dev.sh --server-only ./gitPlaygrounds",

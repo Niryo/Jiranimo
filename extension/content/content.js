@@ -24,11 +24,28 @@
   };
 
   const BADGE_ATTR = 'data-jiranimo';
+  const DASHBOARD_LINK_ATTR = 'data-jiranimo-dashboard-link';
   const SCAN_DEBOUNCE = 500;
   const WS_RECONNECT_DELAY = 3000;
   const BOARD_REFRESH_DELAY = 1200;
   const BOARD_PRESENCE_SYNC_DEBOUNCE = 1500;
   const BOARD_PRESENCE_SYNC_INTERVAL_MS = 30000;
+  const BOARD_HEADER_SELECTOR = [
+    '[data-testid="horizontal-nav-header.ui.board-header.header"]',
+    '[data-testid="horizontal-nav-header.ui.project-header.header"]',
+    '.board-header',
+  ].join(', ');
+  const BOARD_HEADER_ACTION_SELECTORS = [
+    '[data-testid="navigation-project-action-menu.ui.themed-button"]',
+    '[data-testid="feedback-button.horizontal-nav-feedback-button"]',
+    '[data-testid="platform.ui.fullscreen-button.fullscreen-button"]',
+    '[data-vc="automation-menu-button"]',
+    '#po-spotlight-share-button',
+    '[data-testid="navigation-board-action-menu.ui.dropdown"]',
+    '[data-testid="team-button-trigger"]',
+  ];
+  const FULLSCREEN_BUTTON_SELECTOR = '[data-testid="platform.ui.fullscreen-button.fullscreen-button"]';
+  const DASHBOARD_RENDER_VERSION = 'fullscreen-icon-v2';
   const CARD_SELECTOR = '[data-testid="platform-board-kit.ui.card.card"]';
   const CARD_CONTENT_SELECTOR = [
     CARD_SELECTOR,
@@ -40,6 +57,7 @@
   const ISSUE_KEY_PATTERN = /\b[A-Z][A-Z0-9]+-\d+\b/;
   const CARD_ID_PREFIX = 'card-';
   const SPARKLES_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5zM18 1.5a.75.75 0 01.728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 010 1.456l-1.036.258c-.94.236-1.674.97-1.91 1.91l-.258 1.036a.75.75 0 01-1.456 0l-.258-1.036a2.625 2.625 0 00-1.91-1.91l-1.036-.258a.75.75 0 010-1.456l1.036-.258a2.625 2.625 0 001.91-1.91l.258-1.036A.75.75 0 0118 1.5zM16.5 15a.75.75 0 01.712.513l.394 1.183c.15.447.5.799.948.948l1.183.395a.75.75 0 010 1.422l-1.183.395c-.447.15-.799.5-.948.948l-.395 1.183a.75.75 0 01-1.422 0l-.395-1.183a1.5 1.5 0 00-.948-.948l-1.183-.395a.75.75 0 010-1.422l1.183-.395c.447-.15.799-.5.948-.948l.395-1.183A.75.75 0 0116.5 15z" clip-rule="evenodd"/></svg>';
+  const DASHBOARD_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill="currentColor" d="M8.55 2H10v6.1c0 1.97-.56 3.45-1.69 4.45-1.11.97-2.58 1.45-4.43 1.45-.86 0-1.61-.09-2.26-.28v-1.66c.68.26 1.43.39 2.25.39 1.29 0 2.28-.34 2.96-1.01.68-.69 1.02-1.75 1.02-3.18V4.12H4.35V2H8.55Z"/><path fill="currentColor" d="M12.15 1.35c.1 0 .18.07.21.16l.33 1.13c.07.25.27.45.52.52l1.13.33a.22.22 0 0 1 0 .42l-1.13.33a.76.76 0 0 0-.52.52l-.33 1.13a.22.22 0 0 1-.42 0l-.33-1.13a.76.76 0 0 0-.52-.52l-1.13-.33a.22.22 0 0 1 0-.42l1.13-.33c.25-.07.45-.27.52-.52l.33-1.13c.03-.09.11-.16.21-.16Z"/></svg>';
 
   /** @type {Record<string, string>} taskKey -> status */
   let taskStatuses = {};
@@ -68,8 +86,16 @@
   let presenceSyncTimer = null;
   /** @type {number|null} */
   let presenceSyncInterval = null;
+  /** @type {number|null} */
+  let dashboardLinkTimer = null;
   /** @type {string|null} */
   let currentBoardId = null;
+  /** @type {MutationObserver|null} */
+  let cardObserver = null;
+  /** @type {boolean} */
+  let routeMonitoringStarted = false;
+  /** @type {number|null} */
+  let routePollInterval = null;
   /** @type {boolean} */
   let presenceSyncInFlight = false;
   /** @type {boolean} */
@@ -119,9 +145,11 @@
 
   function startScanning() {
     log('Starting card scanner');
+    scheduleDashboardLinkInjection(0);
     setTimeout(() => {
       scanCards();
       scheduleBoardPresenceSync(0);
+      scheduleDashboardLinkInjection(0);
     }, 1000);
     observeCardChanges();
     connectWebSocket();
@@ -131,6 +159,14 @@
   function debouncedScan() {
     if (scanTimer) clearTimeout(scanTimer);
     scanTimer = setTimeout(() => scanCards(), SCAN_DEBOUNCE);
+  }
+
+  function scheduleDashboardLinkInjection(delay = 100) {
+    if (dashboardLinkTimer) clearTimeout(dashboardLinkTimer);
+    dashboardLinkTimer = setTimeout(() => {
+      dashboardLinkTimer = null;
+      ensureDashboardLink();
+    }, delay);
   }
 
   function scheduleBoardPresenceSync(delay = BOARD_PRESENCE_SYNC_DEBOUNCE) {
@@ -209,6 +245,293 @@
       }
     }
     return null;
+  }
+
+  function buildDashboardUrl() {
+    try {
+      return new URL('/', resolveServerBaseUrl()).toString();
+    } catch {
+      return resolveServerBaseUrl().replace(/\/?$/, '/');
+    }
+  }
+
+  function findBoardHeader() {
+    return document.querySelector(BOARD_HEADER_SELECTOR);
+  }
+
+  function isActionLikeElement(element) {
+    return Boolean(
+      element.matches?.('button, a[href], [role="button"]') ||
+      element.querySelector?.('button, a[href], [role="button"]')
+    );
+  }
+
+  function findBoardHeaderReferenceAction(header) {
+    for (const selector of BOARD_HEADER_ACTION_SELECTORS) {
+      const match = header.querySelector(selector);
+      if (match) {
+        return match;
+      }
+    }
+    return null;
+  }
+
+  function findBoardHeaderActionHost(header) {
+    const explicitActionHost = header.querySelector('.board-header-actions');
+    if (explicitActionHost) {
+      return explicitActionHost;
+    }
+
+    const knownControl = findBoardHeaderReferenceAction(header);
+
+    if (knownControl) {
+      let candidate = knownControl.parentElement;
+      while (candidate && candidate !== header) {
+        const actionChildren = [...candidate.children].filter(child => isActionLikeElement(child));
+        if (actionChildren.length >= 2) {
+          return candidate;
+        }
+        candidate = candidate.parentElement;
+      }
+    }
+
+    const directChildren = [...header.children];
+    const childWithActions = directChildren.reverse().find(child =>
+      isActionLikeElement(child)
+    );
+
+    return childWithActions || header;
+  }
+
+  function findFullscreenAction() {
+    return document.querySelector(FULLSCREEN_BUTTON_SELECTOR);
+  }
+
+  function findActionHostForReference(header, referenceAction) {
+    let candidate = referenceAction?.parentElement || null;
+    while (candidate && candidate !== header) {
+      const actionChildren = [...candidate.children].filter(child => isActionLikeElement(child));
+      if (actionChildren.length >= 2) {
+        return candidate;
+      }
+      candidate = candidate.parentElement;
+    }
+    return referenceAction?.parentElement || header;
+  }
+
+  function findDirectChildWithin(parent, descendant) {
+    let current = descendant;
+    while (current && current.parentElement && current.parentElement !== parent) {
+      current = current.parentElement;
+    }
+    return current && current.parentElement === parent ? current : null;
+  }
+
+  function clearJiraSpecificAttributes(element) {
+    for (const attr of ['id', 'data-testid', 'data-vc', 'aria-expanded', 'aria-haspopup', 'aria-controls']) {
+      element.removeAttribute(attr);
+    }
+  }
+
+  function ensureDashboardTooltip(wrapper) {
+    let tooltip = wrapper.querySelector('.jiranimo-dashboard-tooltip');
+    if (!(tooltip instanceof HTMLElement)) {
+      tooltip = document.createElement('span');
+      tooltip.className = 'jiranimo-dashboard-tooltip';
+      tooltip.setAttribute('aria-hidden', 'true');
+      wrapper.appendChild(tooltip);
+    }
+    tooltip.textContent = 'Server dashboard';
+  }
+
+  function createDashboardIconSvg(referenceSvg) {
+    const template = document.createElement('template');
+    template.innerHTML = DASHBOARD_SVG.trim();
+    const svg = template.content.firstElementChild;
+    if (!(svg instanceof SVGElement)) {
+      return document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    }
+
+    svg.classList.add('jiranimo-dashboard-icon-svg');
+
+    if (referenceSvg instanceof SVGElement) {
+      const referenceClass = referenceSvg.getAttribute('class');
+      if (referenceClass) {
+        svg.setAttribute('class', `${referenceClass} jiranimo-dashboard-icon-svg`);
+      }
+      for (const attr of ['role', 'fill']) {
+        const value = referenceSvg.getAttribute(attr);
+        if (value) {
+          svg.setAttribute(attr, value);
+        }
+      }
+    }
+
+    return svg;
+  }
+
+  function openDashboardTab(url) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ type: 'open-tab', url }, (response) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(error.message));
+          return;
+        }
+        if (!response?.ok) {
+          reject(new Error(response?.error || 'Failed to open dashboard tab'));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  function renderDashboardButtonContent(button, referenceAction) {
+    const referenceContent = referenceAction?.firstElementChild instanceof HTMLElement
+      ? referenceAction.firstElementChild
+      : null;
+    const referenceIcon =
+      referenceAction?.querySelector('span[aria-hidden="true"]') instanceof HTMLElement
+        ? referenceAction.querySelector('span[aria-hidden="true"]')
+        : referenceAction?.querySelector('[role="img"]') instanceof HTMLElement
+          ? referenceAction.querySelector('[role="img"]')
+          : null;
+    const referenceSvg = referenceAction?.querySelector('svg') instanceof SVGElement
+      ? referenceAction.querySelector('svg')
+      : null;
+
+    button.replaceChildren();
+
+    const content = referenceContent
+      ? referenceContent.cloneNode(false)
+      : document.createElement('span');
+    const icon = referenceIcon
+      ? referenceIcon.cloneNode(false)
+      : document.createElement('span');
+
+    if (!(content instanceof HTMLElement) || !(icon instanceof HTMLElement)) {
+      return;
+    }
+
+    content.classList.add('jiranimo-dashboard-trigger-content');
+    icon.classList.add('jiranimo-dashboard-trigger-icon');
+    icon.removeAttribute('role');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.style.color = 'currentcolor';
+
+    icon.replaceChildren(createDashboardIconSvg(referenceSvg));
+    content.replaceChildren();
+    content.appendChild(icon);
+    button.appendChild(content);
+  }
+
+  function createDashboardButton(referenceAction) {
+    const template = referenceAction instanceof HTMLButtonElement
+      ? referenceAction.cloneNode(false)
+      : document.createElement('button');
+    const button = template instanceof HTMLButtonElement ? template : document.createElement('button');
+
+    clearJiraSpecificAttributes(button);
+    button.type = 'button';
+    button.classList.add('jiranimo-dashboard-trigger');
+    button.setAttribute(DASHBOARD_LINK_ATTR, 'true');
+    button.setAttribute('aria-label', 'Open Jiranimo server dashboard');
+    button.title = 'Open Jiranimo server dashboard';
+    button.dataset.dashboardUrl = buildDashboardUrl();
+    button.dataset.jiranimoRenderVersion = DASHBOARD_RENDER_VERSION;
+    renderDashboardButtonContent(button, referenceAction);
+
+    button.addEventListener('mousedown', (event) => event.stopPropagation());
+    button.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const dashboardUrl = button.dataset.dashboardUrl || buildDashboardUrl();
+      try {
+        await openDashboardTab(dashboardUrl);
+      } catch (error) {
+        warn('Failed to open dashboard tab:', error);
+      } finally {
+        button.blur();
+      }
+    });
+
+    return button;
+  }
+
+  function createDashboardActionNode(host, referenceAction) {
+    const button = createDashboardButton(referenceAction);
+    const referenceItem = referenceAction ? findDirectChildWithin(host, referenceAction) : null;
+
+    if (!referenceItem) {
+      button.classList.add('jiranimo-dashboard-trigger-fallback');
+      return { node: button, before: null };
+    }
+
+    const wrapper = referenceItem.cloneNode(false);
+    if (!(wrapper instanceof HTMLElement)) {
+      button.classList.add('jiranimo-dashboard-trigger-fallback');
+      return { node: button, before: referenceItem };
+    }
+
+    clearJiraSpecificAttributes(wrapper);
+    wrapper.classList.add('jiranimo-dashboard-action-wrapper');
+    wrapper.replaceChildren(button);
+    ensureDashboardTooltip(wrapper);
+    return { node: wrapper, before: referenceItem };
+  }
+
+  function ensureDashboardLink() {
+    const dashboardUrl = buildDashboardUrl();
+    const header = findBoardHeader();
+    if (!header) {
+      return false;
+    }
+
+    const fullscreenAction = findFullscreenAction();
+    if (!(fullscreenAction instanceof HTMLButtonElement) || !header.contains(fullscreenAction)) {
+      return false;
+    }
+
+    const host = findActionHostForReference(header, fullscreenAction);
+    const fullscreenItem = findDirectChildWithin(host, fullscreenAction);
+    if (!fullscreenItem) {
+      return false;
+    }
+
+    const existing = document.querySelector(`[${DASHBOARD_LINK_ATTR}]`);
+    if (existing instanceof HTMLElement) {
+      const existingItem = existing.closest('.jiranimo-dashboard-action-wrapper') || existing;
+      const isPlacedCorrectly =
+        existingItem.parentElement === host &&
+        existingItem.nextElementSibling === fullscreenItem;
+      const hasCurrentUrl = existing.dataset.dashboardUrl === dashboardUrl;
+      const hasCurrentRenderVersion = existing.dataset.jiranimoRenderVersion === DASHBOARD_RENDER_VERSION;
+      const hasTooltip =
+        existingItem instanceof HTMLElement &&
+        existingItem.classList.contains('jiranimo-dashboard-action-wrapper') &&
+        existingItem.querySelector('.jiranimo-dashboard-tooltip');
+
+      if (isPlacedCorrectly && hasCurrentUrl && hasCurrentRenderVersion && hasTooltip) {
+        return true;
+      }
+
+      existing.dataset.dashboardUrl = dashboardUrl;
+      existing.dataset.jiranimoRenderVersion = DASHBOARD_RENDER_VERSION;
+      renderDashboardButtonContent(existing, fullscreenAction);
+
+      if (existingItem instanceof HTMLElement && existingItem.classList.contains('jiranimo-dashboard-action-wrapper')) {
+        ensureDashboardTooltip(existingItem);
+      }
+      if (isPlacedCorrectly) {
+        return true;
+      }
+      existingItem.remove();
+    }
+
+    const { node } = createDashboardActionNode(host, fullscreenAction);
+    host.insertBefore(node, fullscreenItem);
+    return true;
   }
 
   /**
@@ -731,20 +1054,78 @@
   }
 
   function observeCardChanges() {
+    if (cardObserver) return;
+
     const observer = new MutationObserver((mutations) => {
+      let headerChanged = false;
+      let cardsChanged = false;
+
       for (const mutation of mutations) {
+        if (!headerChanged && mutation.target instanceof Element && mutation.target.closest(BOARD_HEADER_SELECTOR)) {
+          headerChanged = true;
+        }
+
         for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
           if (!(node instanceof Element)) continue;
-          if (node.matches(CARD_CONTENT_SELECTOR) || node.querySelector(CARD_CONTENT_SELECTOR)) {
-            debouncedScan();
-            scheduleBoardPresenceSync();
-            return;
+          if (!cardsChanged && (node.matches(CARD_CONTENT_SELECTOR) || node.querySelector(CARD_CONTENT_SELECTOR))) {
+            cardsChanged = true;
+          }
+          if (
+            !headerChanged &&
+            (node.matches(BOARD_HEADER_SELECTOR) || node.querySelector(BOARD_HEADER_SELECTOR))
+          ) {
+            headerChanged = true;
           }
         }
       }
+
+      if (cardsChanged) {
+        debouncedScan();
+        scheduleBoardPresenceSync();
+      }
+      if (headerChanged) {
+        scheduleDashboardLinkInjection();
+      }
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    cardObserver = observer;
     log('MutationObserver attached');
+  }
+
+  function scheduleInitForCurrentRoute(delay = 0) {
+    globalThis.setTimeout(() => {
+      const nextBoardId = getBoardId();
+      if (!nextBoardId) {
+        return;
+      }
+
+      if (nextBoardId === currentBoardId && boardConfig) {
+        scheduleDashboardLinkInjection(0);
+        debouncedScan();
+        return;
+      }
+
+      currentBoardId = null;
+      boardConfig = null;
+      void init().catch(err => warn('Init failed after route change:', err));
+    }, delay);
+  }
+
+  function startRouteMonitoring() {
+    if (routeMonitoringStarted) return;
+    routeMonitoringStarted = true;
+
+    let lastHref = location.href;
+    const onRouteChange = () => {
+      if (location.href === lastHref) return;
+      lastHref = location.href;
+      log('Route changed:', location.href);
+      scheduleInitForCurrentRoute(50);
+    };
+
+    globalThis.addEventListener('popstate', onRouteChange);
+    globalThis.addEventListener('hashchange', onRouteChange);
+    routePollInterval = globalThis.setInterval(onRouteChange, 500);
   }
 
   function shouldRefreshBoardForIssue(issueKey) {
@@ -968,5 +1349,6 @@
     };
   }
 
+  startRouteMonitoring();
   init().catch(err => warn('Init failed:', err));
 })();

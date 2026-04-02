@@ -1,0 +1,12 @@
+{
+  "name": "@jiranimo/assets",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./logo-mark.svg": "./src/logo-mark.svg"
+  },
+  "scripts": {
+    "sync": "node scripts/sync-assets.mjs"
+  }
+}

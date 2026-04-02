@@ -91,4 +91,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch(err => sendResponse({ ok: false, error: err.message }));
     return true; // keep channel open for async response
   }
+
+  if (msg.type === 'open-tab' && typeof msg.url === 'string') {
+    chrome.tabs.create({ url: msg.url }, (tab) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        sendResponse({ ok: false, error: error.message });
+        return;
+      }
+      sendResponse({ ok: true, tabId: tab?.id ?? null });
+    });
+    return true;
+  }
 });

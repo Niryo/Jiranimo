@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { Request, Response } from 'express';
 import type { PipelineManager } from '../pipeline/manager.js';
 
-const IMGBB_API_KEY = '7922f663cfcfe9b4b0c3119c2b61b7d8';
+const IMGBB_API_KEY = '7922f663cfcfe9b4b0c3119c2b61b7d8'; //this is a client key, not a secret. it's ok to have it here.
 
 export async function uploadToImgbb(filePath: string): Promise<string> {
   const imageData = readFileSync(filePath);

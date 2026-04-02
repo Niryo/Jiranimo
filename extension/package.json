@@ -1,5 +1,13 @@
 {
   "name": "jiranimo-extension",
   "version": "1.0.0",
-  "private": true
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-icons.mjs"
+  },
+  "dependencies": {
+    "@jiranimo/assets": "*",
+    "@resvg/resvg-js": "^2.6.2"
+  }
 }

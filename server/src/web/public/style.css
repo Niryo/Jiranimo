@@ -16,9 +16,24 @@ header {
   border-bottom: 1px solid #30363d;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  display: block;
+  border-radius: 10px;
+  box-shadow: 0 10px 22px rgba(5, 12, 24, 0.35);
+}
+
 header h1 {
   font-size: 20px;
   color: #58a6ff;
+  letter-spacing: -0.02em;
 }
 
 #status-bar {

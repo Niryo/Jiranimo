@@ -72,6 +72,10 @@ fi
 
 mkdir -p "$RUNTIME_LOG_DIR"
 
+echo "[dev] Syncing shared assets..."
+cd "$PROJECT_ROOT"
+npm run assets:sync > /dev/null
+
 cleanup() {
   echo ""
   echo "[dev] Shutting down..."
