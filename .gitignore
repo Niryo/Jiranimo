@@ -14,6 +14,5 @@ server/.dev-self-state.json
 server/.dev-self-logs/
 .chrome-dev-profile/
 .dev-pids
-extension/icons/*.png
-!extension/icons/.gitignore
+extension/icons/
 server/src/web/public/logo-mark.svg
