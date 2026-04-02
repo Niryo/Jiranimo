@@ -18,6 +18,8 @@ interface PromptTask {
   components?: string[];
   parentKey?: string;
   jiraUrl: string;
+  previousTaskMode?: TaskMode;
+  planContent?: string;
 }
 
 export const planFilePath = (key: string) => `/tmp/jiranimo-${key}-plan.md`;
@@ -50,6 +52,17 @@ export function buildPrompt(
   const taskJson = JSON.stringify(task, null, 2);
   const appendSection = config.claude.appendSystemPrompt ? `\n\n${config.claude.appendSystemPrompt}` : '';
   const worktreePath = recoveryContext?.worktreePath ?? `/tmp/jiranimo-${task.key}`;
+  const existingPlanSection = task.planContent?.trim()
+    ? `
+
+### Existing Technical Plan
+${mode === 'implement'
+    ? 'A previous Jiranimo planning run produced the plan below. Treat it as your implementation baseline unless newer Jira comments clearly supersede it.'
+    : 'A previous Jiranimo planning run produced the plan below. Refine or replace it only as needed based on the latest Jira comments.'}
+\`\`\`md
+${task.planContent.trim()}
+\`\`\``
+    : '';
   const recoverySection = recoveryContext?.wasInterrupted
     ? `
 
@@ -78,7 +91,7 @@ Before making any further changes, inspect the current repo state carefully:
 ## Task
 \`\`\`json
 ${taskJson}
-\`\`\`
+\`\`\`${existingPlanSection}
 
 ### Context
 - Branch: \`${branchName}\`
@@ -122,7 +135,7 @@ git -C ${repoPath} worktree remove ${worktreePath}
 ## Task
 \`\`\`json
 ${taskJson}
-\`\`\`
+\`\`\`${existingPlanSection}
 
 ### Your Workspace & Planning Instructions
 
@@ -156,6 +169,7 @@ git -C ${repoPath} worktree remove ${worktreePath}
 ${taskJson}
 \`\`\`
 ${recoverySection}
+${existingPlanSection}
 
 ### Your Workspace & Git Instructions
 

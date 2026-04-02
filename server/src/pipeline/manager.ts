@@ -10,7 +10,7 @@ import type { ClaudeEvent, ExecutionResult, TaskInput } from '../claude/types.js
 import { StateStore, boardTrackingKey } from '../state/store.js';
 import { transition } from './state-machine.js';
 import { buildPrompt, planFilePath } from '../claude/prompt-builder.js';
-import { classifyTask } from '../claude/task-classifier.js';
+import { resolveTaskMode } from '../claude/task-classifier.js';
 import { executeClaudeCode } from '../claude/executor.js';
 import { pickRepo } from '../repo-picker.js';
 import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
@@ -119,6 +119,10 @@ export class PipelineManager extends EventEmitter {
         prUrl: existing!.prUrl,
         prNumber: existing!.prNumber,
         branchName: existing!.branchName,
+      }),
+      ...(existing?.taskMode === 'plan' && {
+        previousTaskMode: existing.taskMode,
+        planContent: existing.planContent,
       }),
       worktreePath: existing?.worktreePath ?? worktreePathForTask(input.key),
       workspacePath: existing?.workspacePath ?? workspacePathForTask(input.key),
@@ -585,7 +589,7 @@ export class PipelineManager extends EventEmitter {
           : pickRepo(this.repoTarget.reposRoot, started),
         started.taskMode != null
           ? Promise.resolve(started.taskMode)
-          : classifyTask(started),
+          : resolveTaskMode({ ...started, comments: started.comments ?? [] }),
       ]);
 
       this.store.patchTask(key, { taskMode, logPath });

@@ -33,7 +33,7 @@ vi.mock('../mcp/server.js', () => ({
 
 // Mock task classifier so it doesn't consume executor mock calls
 vi.mock('../claude/task-classifier.js', () => ({
-  classifyTask: vi.fn().mockResolvedValue('implement'),
+  resolveTaskMode: vi.fn().mockResolvedValue('implement'),
 }));
 
 const testConfig: ServerConfig = {
@@ -333,11 +333,11 @@ describe('PipelineManager', () => {
 
   it('posts a plan comment after plan content is loaded for plan tasks', async () => {
     const { executeClaudeCode } = await import('../claude/executor.js');
-    const { classifyTask } = await import('../claude/task-classifier.js');
+    const { resolveTaskMode } = await import('../claude/task-classifier.js');
     const planTaskKey = 'PROJ-PLAN';
     const planPath = planFilePath(planTaskKey);
 
-    vi.mocked(classifyTask).mockResolvedValue('plan');
+    vi.mocked(resolveTaskMode).mockResolvedValue('plan');
 
     let mgr!: PipelineManager;
     vi.mocked(executeClaudeCode).mockImplementationOnce(async () => {
@@ -366,6 +366,52 @@ describe('PipelineManager', () => {
     } catch {
       // ignore
     }
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('re-submitted planned tasks keep the saved plan and re-decide mode from comments', async () => {
+    const { resolveTaskMode } = await import('../claude/task-classifier.js');
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-REPLAN',
+      summary: 'Existing planned task',
+      description: 'Existing planned task',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [{ author: 'PM', body: 'Initial planning request' }],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-REPLAN',
+      status: 'completed',
+      taskMode: 'plan',
+      planContent: '# Technical Plan\n\n1. Build it\n',
+      trackedBoards: ['test.atlassian.net:board-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    vi.mocked(resolveTaskMode).mockResolvedValue('implement');
+
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    mgr.submitTask({
+      ...sampleInput,
+      key: 'PROJ-REPLAN',
+      summary: 'Existing planned task',
+      description: 'Existing planned task',
+      comments: [{ author: 'PM', body: "Perfect, let's do it", created: '2026-04-02T09:00:00.000Z' }],
+    });
+
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(vi.mocked(resolveTaskMode)).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'PROJ-REPLAN',
+      previousTaskMode: 'plan',
+      planContent: '# Technical Plan\n\n1. Build it\n',
+      comments: [{ author: 'PM', body: "Perfect, let's do it", created: '2026-04-02T09:00:00.000Z' }],
+    }));
+    expect(store.getTask('PROJ-REPLAN')?.taskMode).toBe('implement');
+
     mgr.shutdown();
     store.destroy();
   });

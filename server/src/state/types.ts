@@ -45,6 +45,7 @@ export interface TaskRecord {
   claudeCostUsd?: number;
   claudeResultText?: string;
   taskMode?: TaskMode;
+  previousTaskMode?: TaskMode;
   planContent?: string;
   errorMessage?: string;
   logPath?: string;

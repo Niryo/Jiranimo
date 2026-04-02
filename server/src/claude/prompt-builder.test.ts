@@ -130,6 +130,28 @@ describe('buildPrompt', () => {
     expect(prompt).not.toContain('gh pr create');
   });
 
+  it('includes the saved plan when implementing a previously planned ticket', () => {
+    const prompt = buildPrompt({
+      ...baseTask,
+      previousTaskMode: 'plan',
+      planContent: '# Technical Plan\n\n1. Update API\n2. Add tests\n',
+    }, baseConfig, repoPath, 'implement');
+    expect(prompt).toContain('### Existing Technical Plan');
+    expect(prompt).toContain('Treat it as your implementation baseline');
+    expect(prompt).toContain('1. Update API');
+  });
+
+  it('includes the saved plan when refining a previously planned ticket', () => {
+    const prompt = buildPrompt({
+      ...baseTask,
+      previousTaskMode: 'plan',
+      planContent: '# Technical Plan\n\n1. Explore edge cases\n',
+    }, baseConfig, repoPath, 'plan');
+    expect(prompt).toContain('### Existing Technical Plan');
+    expect(prompt).toContain('Refine or replace it only as needed');
+    expect(prompt).toContain('1. Explore edge cases');
+  });
+
   it('appends appendSystemPrompt when set', () => {
     const config = { ...baseConfig, claude: { ...baseConfig.claude, appendSystemPrompt: 'Focus on performance.' } };
     const prompt = buildPrompt(baseTask, config, repoPath);
