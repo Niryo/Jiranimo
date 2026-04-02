@@ -24,6 +24,30 @@ interface PromptTask {
 
 export const planFilePath = (key: string) => `/tmp/jiranimo-${key}-plan.md`;
 
+function toPromptContext(task: PromptTask): Record<string, unknown> {
+  const ctx: Record<string, unknown> = {
+    key: task.key,
+    summary: task.summary,
+    description: task.description,
+    issueType: task.issueType,
+    priority: task.priority,
+    jiraUrl: task.jiraUrl,
+  };
+
+  if (task.acceptanceCriteria) ctx.acceptanceCriteria = task.acceptanceCriteria;
+  if (task.labels?.length) ctx.labels = task.labels;
+  if (task.components?.length) ctx.components = task.components;
+  if (task.comments?.length) ctx.comments = task.comments;
+  if (task.subtasks?.length) ctx.subtasks = task.subtasks;
+  if (task.linkedIssues?.length) ctx.linkedIssues = task.linkedIssues;
+  if (task.attachments?.length) ctx.attachments = task.attachments;
+  if (task.parentKey) ctx.parentKey = task.parentKey;
+  if (task.assignee) ctx.assignee = task.assignee;
+  if (task.reporter) ctx.reporter = task.reporter;
+
+  return ctx;
+}
+
 interface ScreenshotContext {
   prUrl: string;
   prNumber: number;
@@ -49,7 +73,7 @@ export function buildPrompt(
   recoveryContext?: RecoveryContext,
 ): string {
   const { branchPrefix, defaultBaseBranch, pushRemote, createDraftPr } = config.git;
-  const taskJson = JSON.stringify(task, null, 2);
+  const taskJson = JSON.stringify(toPromptContext(task), null, 2);
   const appendSection = config.claude.appendSystemPrompt ? `\n\n${config.claude.appendSystemPrompt}` : '';
   const worktreePath = recoveryContext?.worktreePath ?? `/tmp/jiranimo-${task.key}`;
   const existingPlanSection = task.planContent?.trim()
