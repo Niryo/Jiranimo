@@ -160,7 +160,50 @@ describe('buildPrompt', () => {
 
   it('handles empty labels', () => {
     const prompt = buildPrompt({ ...baseTask, labels: [] }, baseConfig, repoPath);
-    expect(prompt).toContain('"labels": []');
+    expect(prompt).not.toContain('"labels"');
+  });
+
+  it('excludes internal pipeline fields from prompt context', () => {
+    const taskWithInternals = {
+      ...baseTask,
+      status: 'in-progress',
+      runId: 'abc-123',
+      attempt: 2,
+      worktreePath: '/tmp/jiranimo-PROJ-123',
+      workspacePath: '/tmp/jiranimo-workspaces/PROJ-123',
+      logPath: '/home/.jiranimo/logs/PROJ-123.jsonl',
+      claudeCostUsd: 0.05,
+      recoveryState: 'none',
+      trackedBoards: ['host:1'],
+      createdAt: '2026-01-01T00:00:00Z',
+    };
+    const prompt = buildPrompt(taskWithInternals as any, baseConfig, repoPath);
+    expect(prompt).not.toContain('"worktreePath"');
+    expect(prompt).not.toContain('"workspacePath"');
+    expect(prompt).not.toContain('"runId"');
+    expect(prompt).not.toContain('"attempt"');
+    expect(prompt).not.toContain('"recoveryState"');
+    expect(prompt).not.toContain('"trackedBoards"');
+    expect(prompt).not.toContain('"claudeCostUsd"');
+    expect(prompt).not.toContain('"createdAt"');
+  });
+
+  it('omits empty arrays from prompt context', () => {
+    const prompt = buildPrompt({ ...baseTask, labels: [], comments: [] }, baseConfig, repoPath);
+    expect(prompt).not.toContain('"labels"');
+    expect(prompt).not.toContain('"comments"');
+  });
+
+  it('includes non-empty labels and comments', () => {
+    const prompt = buildPrompt({
+      ...baseTask,
+      labels: ['frontend'],
+      comments: [{ author: 'PM', body: 'Use existing button component' }],
+    }, baseConfig, repoPath);
+    expect(prompt).toContain('"labels"');
+    expect(prompt).toContain('frontend');
+    expect(prompt).toContain('"comments"');
+    expect(prompt).toContain('Use existing button component');
   });
 
   it('embeds branchPrefix and defaultBaseBranch in git instructions', () => {
