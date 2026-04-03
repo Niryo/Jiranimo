@@ -66,6 +66,7 @@ export interface TaskRecord {
   planContent?: string;
   errorMessage?: string;
   logPath?: string;
+  compactLog?: string;
   workspacePath?: string;
   worktreePath?: string;
   activePid?: number;

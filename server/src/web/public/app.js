@@ -119,6 +119,11 @@ function taskCard(task) {
 
 // ── Conversation Log Modal ────────────────────────────────
 
+let currentLogKey = null;
+let currentFullLogText = null;
+let currentCompactLogText = null;
+let currentLogTab = 'compact';
+
 async function openConvLog(key, title) {
   const modal = document.getElementById('conv-modal');
   const body = document.getElementById('conv-modal-body');
@@ -127,15 +132,101 @@ async function openConvLog(key, title) {
   modal.style.display = 'flex';
   document.body.style.overflow = 'hidden';
 
+  currentLogKey = key;
+  currentFullLogText = null;
+  currentCompactLogText = null;
+  currentLogTab = 'compact';
+
+  // Fetch both logs in parallel
+  const [fullRes, compactRes] = await Promise.allSettled([
+    fetch(`${API_BASE}/api/tasks/${key}/logs`),
+    fetch(`${API_BASE}/api/tasks/${key}/compact-log`),
+  ]);
+
+  if (fullRes.status === 'fulfilled' && fullRes.value.ok) {
+    currentFullLogText = await fullRes.value.text();
+  }
+
+  if (compactRes.status === 'fulfilled' && compactRes.value.ok) {
+    const data = await compactRes.value.json();
+    currentCompactLogText = data.compactLog ?? null;
+  }
+
+  const tabsEl = document.getElementById('log-tabs');
+  if (currentCompactLogText) {
+    tabsEl.style.display = 'flex';
+    setActiveTab('compact');
+    showLogTab('compact');
+  } else {
+    // No compact log: hide tabs, show full log
+    tabsEl.style.display = 'none';
+    currentLogTab = 'full';
+    showLogTab('full');
+  }
+}
+
+function setActiveTab(tab) {
+  document.getElementById('tab-compact').classList.toggle('active', tab === 'compact');
+  document.getElementById('tab-full').classList.toggle('active', tab === 'full');
+}
+
+function showLogTab(tab) {
+  const body = document.getElementById('conv-modal-body');
+  currentLogTab = tab;
+  setActiveTab(tab);
+
+  if (tab === 'compact') {
+    if (currentCompactLogText) {
+      body.innerHTML = `<div class="conv-entry conv-compact"><div class="conv-text">${escapeHtml(currentCompactLogText)}</div></div>`;
+    } else {
+      body.innerHTML = '<div class="conv-loading">Compact log not available.</div>';
+    }
+  } else {
+    if (currentFullLogText) {
+      body.innerHTML = renderConvLog(currentFullLogText);
+      body.scrollTop = body.scrollHeight;
+    } else {
+      body.innerHTML = '<div class="conv-loading">No logs available for this task yet.</div>';
+    }
+  }
+}
+
+function switchLogTab(tab) {
+  showLogTab(tab);
+}
+
+async function copyLogToClipboard() {
+  const btn = document.getElementById('btn-copy-log');
+  let text = '';
+
+  if (currentLogTab === 'compact' && currentCompactLogText) {
+    text = currentCompactLogText;
+  } else if (currentLogTab === 'full' && currentFullLogText) {
+    // Extract plain text from the rendered full log
+    const body = document.getElementById('conv-modal-body');
+    text = body.innerText || body.textContent || '';
+  }
+
+  if (!text) return;
+
   try {
-    const res = await fetch(`${API_BASE}/api/tasks/${key}/logs`);
-    if (!res.ok) throw new Error(res.status === 404 ? 'No logs available for this task yet.' : `HTTP ${res.status}`);
-    const text = await res.text();
-    body.innerHTML = renderConvLog(text);
-    // Scroll to bottom so latest messages are visible
-    body.scrollTop = body.scrollHeight;
-  } catch (err) {
-    body.innerHTML = `<div class="conv-loading">${escapeHtml(err.message)}</div>`;
+    await navigator.clipboard.writeText(text);
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  } catch {
+    // fallback
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
   }
 }
 

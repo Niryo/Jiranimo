@@ -17,6 +17,7 @@ import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
 import type { RepoTarget } from '../runtime-target.js';
 import { createLogger, isSuppressedChildProcessLogLine, resolveLoggingConfig, type Logger } from '../logging/logger.js';
 import { fetchPendingGithubReviewComments } from '../github/review-comments.js';
+import { generateCompactLog } from '../claude/compact-log-generator.js';
 
 const RESUME_GRACE_MS = 15_000;
 const EFFECT_CLAIM_LEASE_MS = 30_000;
@@ -647,6 +648,7 @@ export class PipelineManager extends EventEmitter {
     mkdirSync(logsDir, { recursive: true });
     const logPath = join(logsDir, `${key}-${Date.now()}.jsonl`);
     const logLines: string[] = [];
+    let capturedSessionId: string | undefined;
 
     try {
       const [repoPath, taskMode] = await Promise.all([
@@ -706,6 +708,7 @@ export class PipelineManager extends EventEmitter {
           this.emit('task-output', key, JSON.stringify(event.raw));
           if (event.type === 'init' && event.sessionId && !sessionLogged) {
             sessionLogged = true;
+            capturedSessionId = event.sessionId;
             taskLogger.info('Claude session started', { sessionId: event.sessionId });
           } else if (event.type === 'result') {
             taskLogger.info('Claude result received', {
@@ -734,10 +737,21 @@ export class PipelineManager extends EventEmitter {
 
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
 
+      let compactLog: string | undefined;
+      const compactSessionId = result.sessionId ?? capturedSessionId;
+      if (compactSessionId) {
+        try {
+          compactLog = await generateCompactLog(compactSessionId, this.config.claude, workspacePath);
+        } catch {
+          // compact log generation is best-effort; don't fail the task
+        }
+      }
+
       this.store.patchTask(key, {
         claudeSessionId: result.sessionId ?? this.store.getTask(key)?.claudeSessionId,
         claudeCostUsd: result.costUsd,
         logPath,
+        compactLog,
         activePid: undefined,
       });
       this.store.flushSync();
@@ -777,11 +791,22 @@ export class PipelineManager extends EventEmitter {
     } catch (err) {
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
       taskLogger.error('Task failed', { error: (err as Error).message, logPath });
+
+      let compactLog: string | undefined;
+      if (capturedSessionId) {
+        try {
+          compactLog = await generateCompactLog(capturedSessionId, this.config.claude, workspacePath);
+        } catch {
+          // compact log generation is best-effort
+        }
+      }
+
       const currentStatus = this.store.getTask(key)?.status;
       if (currentStatus === 'in-progress') {
         this.transitionTask(key, 'fail', {
           errorMessage: (err as Error).message,
           logPath,
+          compactLog,
           activePid: undefined,
         });
       }
