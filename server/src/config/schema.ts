@@ -6,7 +6,7 @@ const DEFAULT_ALLOWED_TOOLS = [
 
 const claudeConfigSchema = z.object({
   model: z.string().optional(),
-  maxBudgetUsd: z.number().positive().default(2.0),
+  maxBudgetUsd: z.number().positive(),
   allowedTools: z.array(z.string()).default(DEFAULT_ALLOWED_TOOLS),
   appendSystemPrompt: z.string().optional(),
   effortLevel: z.string().optional(),
