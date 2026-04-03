@@ -58,8 +58,7 @@ export class OutputParser extends EventEmitter {
       let toolUse: ClaudeToolUse[] | undefined;
       if (Array.isArray(content)) {
         const texts = content
-          .filter((c: Record<string, unknown>) => c.type === 'text')
-          .map((c: Record<string, unknown>) => c.text as string)
+          .map((c: Record<string, unknown>) => extractAssistantText(c))
           .filter(Boolean);
         if (texts.length) text = texts.join('');
 
@@ -94,4 +93,16 @@ export class OutputParser extends EventEmitter {
     // Unknown event type — still emit it
     return { type: 'message', raw };
   }
+}
+
+function extractAssistantText(block: Record<string, unknown>): string | undefined {
+  if (block.type === 'text' && typeof block.text === 'string') {
+    return block.text;
+  }
+
+  if (block.type === 'thinking' && typeof block.thinking === 'string') {
+    return block.thinking;
+  }
+
+  return undefined;
 }

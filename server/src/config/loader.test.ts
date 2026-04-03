@@ -33,7 +33,7 @@ describe('loadConfig', () => {
     expect(config.web.port).toBe(3456);
     expect(config.pipeline.concurrency).toBe(1);
     expect(config.logging?.level).toBe('info');
-    expect(config.logging?.logHttpRequests).toBe(true);
+    expect(config.logging?.logHttpRequests).toBe(false);
   });
 
   it('returns defaults when no config file is found', () => {

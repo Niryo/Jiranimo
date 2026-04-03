@@ -3,7 +3,7 @@ import { PipelineManager } from './manager.js';
 import { StateStore } from '../state/store.js';
 import type { ServerConfig } from '../config/types.js';
 import type { TaskInput } from '../claude/types.js';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { planFilePath } from '../claude/prompt-builder.js';
@@ -299,6 +299,110 @@ describe('PipelineManager', () => {
 
     expect(sessionLogs).toHaveLength(1);
     consoleSpy.mockRestore();
+    store.destroy();
+  });
+
+  it('writes concise lifecycle and Claude progress logs', async () => {
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    const logsDir = join(tmpDir, 'logs');
+
+    vi.mocked(executeClaudeCode).mockImplementationOnce(async (opts) => {
+      opts.onEvent?.({ type: 'init', raw: { type: 'system', session_id: 'sess-log' }, sessionId: 'sess-log' });
+      opts.onEvent?.({
+        type: 'message',
+        raw: {
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'text', text: 'Inspecting the repository and preparing a change.' },
+              { type: 'tool_use', name: 'Read', input: { file_path: '/tmp/test-repo/src/index.ts' } },
+              { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } },
+            ],
+          },
+        },
+        text: 'Inspecting the repository and preparing a change.',
+        toolUse: [
+          { name: 'Read', input: { file_path: '/tmp/test-repo/src/index.ts' } },
+          { name: 'Bash', input: { command: 'npm test' } },
+        ],
+      });
+      opts.onEvent?.({
+        type: 'result',
+        raw: { type: 'result', subtype: 'success', result: 'Done', total_cost_usd: 0.1 },
+        text: 'Done',
+        costUsd: 0.1,
+        isError: false,
+      });
+
+      return { success: true, resultText: 'Done', sessionId: 'sess-log', costUsd: 0.1, durationMs: 100 };
+    });
+
+    const mgr = new PipelineManager(store, { ...testConfig, logsDir }, repoRootTarget);
+    mgr.submitTask(sampleInput);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const serverLog = readFileSync(join(logsDir, 'server.log'), 'utf-8');
+    expect(serverLog).toContain('Received task to implement: Test task (PROJ-1)');
+    expect(serverLog).toContain('Starting task: Test task');
+    expect(serverLog).toContain('Preparing workspace');
+    expect(serverLog).toContain('Choosing repository to operate on');
+    expect(serverLog).toContain('Repository selected: /tmp/test-repo (source: repo picker)');
+    expect(serverLog).toContain('Task mode selected: implement (source: task classifier)');
+    expect(serverLog).toContain('Building Claude prompt');
+    expect(serverLog).toContain('Launching Claude Code');
+    expect(serverLog).toContain('Claude session ready: sess-log');
+    expect(serverLog).toContain('Claude progress: Inspecting the repository and preparing a change.');
+    expect(serverLog).toContain('Claude action: reading /tmp/test-repo/src/index.ts');
+    expect(serverLog).toContain('Claude action: running npm test');
+    expect(serverLog).toContain('Claude finished successfully ($0.10)');
+    expect(serverLog).not.toContain('HTTP request');
+
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('logs resolved decisions even when they come from config or existing task state', async () => {
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    const logsDir = join(tmpDir, 'known-decision-logs');
+
+    vi.mocked(executeClaudeCode).mockResolvedValueOnce({
+      success: true,
+      resultText: 'Done',
+      sessionId: 'sess-known',
+      costUsd: 0.1,
+      durationMs: 100,
+    });
+
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-KNOWN',
+      summary: 'Known repo and mode',
+      description: 'Known repo and mode',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-KNOWN',
+      status: 'queued',
+      repoPath: '/tmp/already-chosen-repo',
+      taskMode: 'implement',
+      trackedBoards: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.enqueueTask('PROJ-KNOWN');
+    store.flushSync();
+
+    const mgr = new PipelineManager(store, { ...testConfig, logsDir }, singleRepoTarget);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const serverLog = readFileSync(join(logsDir, 'server.log'), 'utf-8');
+    expect(serverLog).toContain('Repository selected: /tmp/already-chosen-repo (source: task state)');
+    expect(serverLog).toContain('Task mode selected: implement (source: task state)');
+
+    mgr.shutdown();
     store.destroy();
   });
 
