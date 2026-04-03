@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 vi.mock('node:fs');
 
 const validConfig = JSON.stringify({
-  claude: { maxBudgetUsd: 3.5 },
+  claude: { model: 'sonnet' },
 });
 
 beforeEach(() => {
@@ -21,7 +21,7 @@ describe('loadConfig', () => {
     vi.mocked(fs.readFileSync).mockReturnValue(validConfig);
 
     const config = loadConfig({ configPath: '/fake/config.json' });
-    expect(config.claude.maxBudgetUsd).toBe(3.5);
+    expect(config.claude.model).toBe('sonnet');
   });
 
   it('applies defaults for missing optional fields', () => {
@@ -29,6 +29,7 @@ describe('loadConfig', () => {
 
     const config = loadConfig({ configPath: '/fake/config.json' });
     expect(config.git.branchPrefix).toBe('jiranimo/');
+    expect(config.claude.maxBudgetUsd).toBeUndefined();
     expect(config.web.port).toBe(3456);
     expect(config.pipeline.concurrency).toBe(1);
     expect(config.logging?.level).toBe('info');
@@ -41,7 +42,7 @@ describe('loadConfig', () => {
     });
 
     const config = loadConfig({ searchPaths: ['/nonexistent/config.json'] });
-    expect(config.claude.maxBudgetUsd).toBe(2.0);
+    expect(config.claude.maxBudgetUsd).toBeUndefined();
     expect(config.web.port).toBe(3456);
   });
 
@@ -92,7 +93,7 @@ describe('loadConfig', () => {
     });
 
     const config = loadConfig({ searchPaths: ['/first/config.json', '/second/config.json'] });
-    expect(config.claude.maxBudgetUsd).toBe(3.5);
+    expect(config.claude.model).toBe('sonnet');
     // findConfigFile reads once to check existence, loadConfig reads again to parse
     expect(callCount).toBe(3);
   });
@@ -103,7 +104,7 @@ describe('loadConfig', () => {
 
     const config = loadConfig();
 
-    expect(config.claude.maxBudgetUsd).toBe(3.5);
+    expect(config.claude.model).toBe('sonnet');
     expect(fs.readFileSync).toHaveBeenCalledWith('/env/config.json', 'utf-8');
 
     delete process.env.JIRANIMO_CONFIG;

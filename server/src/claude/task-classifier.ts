@@ -22,7 +22,7 @@ Respond with ONLY one word: "plan" or "implement".
   const result = await executeClaudeCode({
     prompt,
     cwd: tmpdir(),
-    config: { model: 'claude-haiku-4-5-20251001', maxBudgetUsd: 1 },
+    config: { model: 'claude-haiku-4-5-20251001' },
   });
 
   return result.resultText?.trim().toLowerCase().startsWith('plan') ? 'plan' : 'implement';
@@ -59,7 +59,7 @@ Be conservative: if the comments are ambiguous, respond "plan".`;
   const result = await executeClaudeCode({
     prompt,
     cwd: tmpdir(),
-    config: { model: 'claude-haiku-4-5-20251001', maxBudgetUsd: 1 },
+    config: { model: 'claude-haiku-4-5-20251001' },
   });
 
   return normalizeMode(result.resultText, 'plan');

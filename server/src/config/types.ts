@@ -1,6 +1,6 @@
 export interface ClaudeConfig {
   model?: string;
-  maxBudgetUsd: number;
+  maxBudgetUsd?: number;
   allowedTools?: string[];
   appendSystemPrompt?: string;
   effortLevel?: string;

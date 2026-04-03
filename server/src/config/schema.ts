@@ -6,7 +6,7 @@ const DEFAULT_ALLOWED_TOOLS = [
 
 const claudeConfigSchema = z.object({
   model: z.string().optional(),
-  maxBudgetUsd: z.number().positive(),
+  maxBudgetUsd: z.number().positive().optional(),
   allowedTools: z.array(z.string()).default(DEFAULT_ALLOWED_TOOLS),
   appendSystemPrompt: z.string().optional(),
   effortLevel: z.string().optional(),
@@ -40,7 +40,7 @@ const loggingConfigSchema = z.object({
 export const serverConfigSchema = z.object({
   logsDir: z.string().optional(),
   statePath: z.string().optional(),
-  claude: claudeConfigSchema.default({ maxBudgetUsd: 2.0, allowedTools: DEFAULT_ALLOWED_TOOLS }),
+  claude: claudeConfigSchema.default({ allowedTools: DEFAULT_ALLOWED_TOOLS }),
   pipeline: pipelineConfigSchema.default({ concurrency: 1 }),
   git: gitConfigSchema.default({
     branchPrefix: 'jiranimo/',

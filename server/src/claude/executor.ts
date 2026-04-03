@@ -109,9 +109,6 @@ function buildArgs(prompt: string, config: ClaudeConfig, resumeSessionId?: strin
   if (config.model) {
     args.push('--model', config.model);
   }
-  if (config.maxBudgetUsd) {
-    args.push('--max-budget-usd', String(config.maxBudgetUsd));
-  }
   if (config.appendSystemPrompt) {
     args.push('--append-system-prompt', config.appendSystemPrompt);
   }

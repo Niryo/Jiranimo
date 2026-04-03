@@ -61,7 +61,7 @@ ${repoList}`;
   const result = await executeClaudeCode({
     prompt,
     cwd: tmpdir(),
-    config: { model: 'claude-haiku-4-5-20251001', maxBudgetUsd: 1 },
+    config: { model: 'claude-haiku-4-5-20251001' },
   });
 
   if (!result.success || !result.resultText) {

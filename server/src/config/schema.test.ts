@@ -13,7 +13,7 @@ const validFull = {
 describe('serverConfigSchema', () => {
   it('accepts minimal valid config and applies defaults', () => {
     const result = serverConfigSchema.parse(validMinimal);
-    expect(result.claude.maxBudgetUsd).toBe(2.0);
+    expect(result.claude.maxBudgetUsd).toBeUndefined();
     expect(result.pipeline.concurrency).toBe(1);
     expect(result.git.branchPrefix).toBe('jiranimo/');
     expect(result.git.defaultBaseBranch).toBe('main');
