@@ -647,6 +647,7 @@ export class PipelineManager extends EventEmitter {
     mkdirSync(logsDir, { recursive: true });
     const logPath = join(logsDir, `${key}-${Date.now()}.jsonl`);
     const logLines: string[] = [];
+    let capturedSessionId: string | undefined;
 
     try {
       const [repoPath, taskMode] = await Promise.all([
@@ -706,6 +707,7 @@ export class PipelineManager extends EventEmitter {
           this.emit('task-output', key, JSON.stringify(event.raw));
           if (event.type === 'init' && event.sessionId && !sessionLogged) {
             sessionLogged = true;
+            capturedSessionId = event.sessionId;
             taskLogger.info('Claude session started', { sessionId: event.sessionId });
           } else if (event.type === 'result') {
             taskLogger.info('Claude result received', {
@@ -734,12 +736,14 @@ export class PipelineManager extends EventEmitter {
 
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
 
-      const taskForLog = this.store.getTask(key);
       let compactLog: string | undefined;
-      try {
-        compactLog = await generateCompactLog(logLines.join('\n'), taskForLog?.summary ?? key);
-      } catch {
-        // compact log generation is best-effort; don't fail the task
+      const compactSessionId = result.sessionId ?? capturedSessionId;
+      if (compactSessionId) {
+        try {
+          compactLog = await generateCompactLog(compactSessionId, this.config.claude, workspacePath);
+        } catch {
+          // compact log generation is best-effort; don't fail the task
+        }
       }
 
       this.store.patchTask(key, {
@@ -788,11 +792,12 @@ export class PipelineManager extends EventEmitter {
       taskLogger.error('Task failed', { error: (err as Error).message, logPath });
 
       let compactLog: string | undefined;
-      try {
-        const taskForLog = this.store.getTask(key);
-        compactLog = await generateCompactLog(logLines.join('\n'), taskForLog?.summary ?? key);
-      } catch {
-        // compact log generation is best-effort
+      if (capturedSessionId) {
+        try {
+          compactLog = await generateCompactLog(capturedSessionId, this.config.claude, workspacePath);
+        } catch {
+          // compact log generation is best-effort
+        }
       }
 
       const currentStatus = this.store.getTask(key)?.status;
