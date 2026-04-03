@@ -766,17 +766,20 @@ export class PipelineManager extends EventEmitter {
         },
       });
 
-      writeFileSync(logPath, logLines.join('\n'), 'utf-8');
+      const logContent = logLines.join('\n');
+      writeFileSync(logPath, logContent, 'utf-8');
 
       let compactLog: string | undefined;
-      const compactSessionId = result.sessionId ?? capturedSessionId;
-      if (compactSessionId) {
-        taskLogger.info('Generating compact Claude summary');
-        try {
-          compactLog = await generateCompactLog(compactSessionId, this.config.claude, workspacePath);
-        } catch {
-          // compact log generation is best-effort; don't fail the task
-        }
+      taskLogger.info('Generating compact Claude summary');
+      try {
+        compactLog = await generateCompactLog(
+          logContent,
+          this.store.getTask(key)?.summary ?? key,
+          this.config.claude,
+          workspacePath,
+        );
+      } catch {
+        // compact log generation is best-effort; don't fail the task
       }
 
       this.store.patchTask(key, {
@@ -821,17 +824,21 @@ export class PipelineManager extends EventEmitter {
 
       taskLogger.info('Task completed');
     } catch (err) {
-      writeFileSync(logPath, logLines.join('\n'), 'utf-8');
+      const logContent = logLines.join('\n');
+      writeFileSync(logPath, logContent, 'utf-8');
       taskLogger.error(`Task failed: ${(err as Error).message}`);
 
       let compactLog: string | undefined;
-      if (capturedSessionId) {
-        taskLogger.info('Generating compact Claude summary from failed run');
-        try {
-          compactLog = await generateCompactLog(capturedSessionId, this.config.claude, workspacePath);
-        } catch {
-          // compact log generation is best-effort
-        }
+      taskLogger.info('Generating compact Claude summary from failed run');
+      try {
+        compactLog = await generateCompactLog(
+          logContent,
+          this.store.getTask(key)?.summary ?? key,
+          this.config.claude,
+          workspacePath,
+        );
+      } catch {
+        // compact log generation is best-effort
       }
 
       const currentStatus = this.store.getTask(key)?.status;

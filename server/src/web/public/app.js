@@ -13,6 +13,7 @@ async function fetchSync() {
     revision = data.revision || 0;
     tasks = Array.isArray(data.tasks) ? data.tasks : [];
     render();
+    void refreshOpenConvLog();
   } catch (err) {
     console.error('Failed to sync dashboard state:', err);
   }
@@ -120,9 +121,11 @@ function taskCard(task) {
 // ── Conversation Log Modal ────────────────────────────────
 
 let currentLogKey = null;
+let currentLogTitle = null;
 let currentFullLogText = null;
 let currentCompactLogText = null;
 let currentLogTab = 'compact';
+let isRefreshingOpenLog = false;
 
 async function openConvLog(key, title) {
   const modal = document.getElementById('conv-modal');
@@ -133,15 +136,28 @@ async function openConvLog(key, title) {
   document.body.style.overflow = 'hidden';
 
   currentLogKey = key;
+  currentLogTitle = title;
   currentFullLogText = null;
   currentCompactLogText = null;
   currentLogTab = 'compact';
+  await loadConvLog(key, { showLoading: false, preserveTab: false });
+}
+
+async function loadConvLog(key, options = {}) {
+  const { showLoading = false, preserveTab = true } = options;
+  const body = document.getElementById('conv-modal-body');
+
+  if (showLoading) {
+    body.innerHTML = '<div class="conv-loading">Loading conversation…</div>';
+  }
 
   // Fetch both logs in parallel
   const [fullRes, compactRes] = await Promise.allSettled([
     fetch(`${API_BASE}/api/tasks/${key}/logs`),
     fetch(`${API_BASE}/api/tasks/${key}/compact-log`),
   ]);
+
+  if (currentLogKey !== key) return;
 
   if (fullRes.status === 'fulfilled' && fullRes.value.ok) {
     currentFullLogText = await fullRes.value.text();
@@ -155,13 +171,34 @@ async function openConvLog(key, title) {
   const tabsEl = document.getElementById('log-tabs');
   if (currentCompactLogText) {
     tabsEl.style.display = 'flex';
-    setActiveTab('compact');
-    showLogTab('compact');
+    const nextTab = preserveTab && currentLogTab === 'full' ? 'full' : 'compact';
+    setActiveTab(nextTab);
+    showLogTab(nextTab);
   } else {
     // No compact log: hide tabs, show full log
     tabsEl.style.display = 'none';
     currentLogTab = 'full';
     showLogTab('full');
+  }
+}
+
+async function refreshOpenConvLog() {
+  const modal = document.getElementById('conv-modal');
+  if (!currentLogKey || !modal || modal.style.display === 'none' || isRefreshingOpenLog) {
+    return;
+  }
+
+  const task = tasks.find(t => t.key === currentLogKey);
+  if (!task) return;
+
+  const shouldRefresh = !currentCompactLogText || task.status === 'in-progress';
+  if (!shouldRefresh) return;
+
+  isRefreshingOpenLog = true;
+  try {
+    await loadConvLog(currentLogKey, { preserveTab: true });
+  } finally {
+    isRefreshingOpenLog = false;
   }
 }
 
@@ -177,7 +214,7 @@ function showLogTab(tab) {
 
   if (tab === 'compact') {
     if (currentCompactLogText) {
-      body.innerHTML = `<div class="conv-entry conv-compact"><div class="conv-text">${escapeHtml(currentCompactLogText)}</div></div>`;
+      body.innerHTML = renderCompactLog(currentCompactLogText);
     } else {
       body.innerHTML = '<div class="conv-loading">Compact log not available.</div>';
     }
@@ -235,6 +272,8 @@ function closeConvModal(event) {
   if (event && event.target !== document.getElementById('conv-modal') && !event.target.classList.contains('modal-close')) return;
   document.getElementById('conv-modal').style.display = 'none';
   document.body.style.overflow = '';
+  currentLogKey = null;
+  currentLogTitle = null;
 }
 
 // Close on Escape key
@@ -303,6 +342,84 @@ function renderConvLog(rawText) {
   }
 
   return entries.length ? entries.join('') : '<div class="conv-loading">No conversation entries found in log.</div>';
+}
+
+function renderCompactLog(rawText) {
+  const lines = rawText
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return '<div class="conv-loading">Compact log is empty.</div>';
+  }
+
+  const bulletItems = [];
+  const paragraphItems = [];
+  let outcome = null;
+
+  for (const line of lines) {
+    const normalized = line.replace(/^[-*]\s*/, '').trim();
+    if (!normalized) continue;
+
+    if (/^\*{0,2}Outcome[:*]/i.test(normalized)) {
+      outcome = normalized;
+      continue;
+    }
+
+    if (/^[-*]\s/.test(line)) {
+      bulletItems.push(normalized);
+    } else {
+      paragraphItems.push(normalized);
+    }
+  }
+
+  const sections = ['<div class="compact-log-shell">'];
+
+  if (paragraphItems.length) {
+    sections.push(`
+      <div class="compact-log-intro">
+        ${paragraphItems.map(item => `<p>${renderCompactInline(item)}</p>`).join('')}
+      </div>
+    `);
+  }
+
+  if (bulletItems.length) {
+    sections.push(`
+      <ul class="compact-log-list">
+        ${bulletItems.map(item => `
+          <li class="compact-log-item">
+            <span class="compact-log-marker"></span>
+            <div class="compact-log-item-text">${renderCompactInline(item)}</div>
+          </li>
+        `).join('')}
+      </ul>
+    `);
+  }
+
+  if (outcome) {
+    sections.push(`
+      <div class="compact-log-outcome">
+        <div class="compact-log-outcome-label">Outcome</div>
+        <div class="compact-log-outcome-text">${renderCompactInline(stripOutcomeLabel(outcome))}</div>
+      </div>
+    `);
+  }
+
+  sections.push('</div>');
+  return sections.join('');
+}
+
+function stripOutcomeLabel(text) {
+  return text
+    .replace(/^\*{0,2}Outcome\*{0,2}:\s*/i, '')
+    .trim();
+}
+
+function renderCompactInline(text) {
+  return escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
 }
 
 function convEntry(type, role, text, extraClass = '') {

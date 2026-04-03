@@ -336,13 +336,121 @@ section h2 {
 
 /* Compact log entry */
 .conv-compact {
-  background: #0d1117;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 16px 20px;
-  color: #c9d1d9;
-  font-size: 14px;
-  line-height: 1.7;
-  white-space: pre-wrap;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.compact-log-shell {
+  background:
+    radial-gradient(circle at top right, rgba(56, 139, 253, 0.14), transparent 34%),
+    linear-gradient(180deg, #0f1622 0%, #0c121b 100%);
+  border: 1px solid #283445;
+  border-radius: 18px;
+  padding: 22px 24px;
+  color: #dbe5f0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.compact-log-intro {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.compact-log-intro p {
+  margin: 0;
+  color: #c4d0de;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.compact-log-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+}
+
+.compact-log-item {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 0;
+}
+
+.compact-log-marker {
+  width: 14px;
+  height: 14px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #7cc0ff 0%, #388bfd 100%);
+  box-shadow: 0 0 0 4px rgba(56, 139, 253, 0.12);
+}
+
+.compact-log-item-text {
+  color: #dbe5f0;
+  font-family: 'Avenir Next', 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.75;
   word-break: break-word;
+}
+
+.compact-log-outcome {
+  margin-top: 18px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(12, 31, 22, 0.95), rgba(12, 24, 20, 0.92));
+  border: 1px solid rgba(63, 185, 80, 0.28);
+}
+
+.compact-log-outcome-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #56d364;
+  margin-bottom: 8px;
+}
+
+.compact-log-outcome-text {
+  color: #d8ffe0;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.compact-log-shell code {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.92em;
+  color: #9ecbff;
+  background: rgba(15, 23, 35, 0.95);
+  border: 1px solid rgba(88, 166, 255, 0.22);
+  border-radius: 8px;
+  padding: 2px 7px;
+}
+
+.compact-log-shell strong {
+  color: #f0f6fc;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .compact-log-shell {
+    padding: 20px 18px;
+    border-radius: 16px;
+  }
+
+  .compact-log-item {
+    grid-template-columns: 12px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .compact-log-marker {
+    width: 12px;
+    height: 12px;
+  }
 }
