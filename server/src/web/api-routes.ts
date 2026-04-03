@@ -148,6 +148,22 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
     }
   });
 
+  // POST /api/tasks/:key/fix-comments — fix new PR comments
+  router.post('/tasks/:key/fix-comments', (req: Request, res: Response) => {
+    const key = param(req.params.key);
+    try {
+      const task = pipeline.fixComments(key);
+      res.json(task);
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(400).json({ error: message });
+      }
+    }
+  });
+
   // DELETE /api/tasks/:key — remove a task (e.g. when moved back to To Do in Jira)
   router.delete('/tasks/:key', (req: Request, res: Response) => {
     const key = param(req.params.key);

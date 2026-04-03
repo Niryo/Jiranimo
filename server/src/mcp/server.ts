@@ -73,6 +73,15 @@ export function createMcpHandler(pipeline: PipelineManager) {
     );
 
     server.tool(
+      'jiranimo_report_fixed_comments',
+      { task_key: z.string(), comment_ids: z.array(z.string()) },
+      async ({ task_key, comment_ids }) => {
+        pipeline.reportFixedComments(task_key, comment_ids);
+        return { content: [{ type: 'text' as const, text: 'Fixed comments recorded' }] };
+      },
+    );
+
+    server.tool(
       'jiranimo_upload_screenshot',
       { file_path: z.string() },
       async ({ file_path }) => {

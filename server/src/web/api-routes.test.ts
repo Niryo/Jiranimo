@@ -195,6 +195,41 @@ describe('POST /api/tasks/:key/retry', () => {
   });
 });
 
+describe('POST /api/tasks/:key/fix-comments', () => {
+  it('returns 404 for unknown key', async () => {
+    const res = await request(app).post('/api/tasks/NOPE-1/fix-comments');
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for task without a PR', async () => {
+    store.upsertTask({
+      key: 'PROJ-1', summary: 'Test', description: 'Test',
+      priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
+      status: 'completed', trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const res = await request(app).post('/api/tasks/PROJ-1/fix-comments');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('no PR');
+  });
+
+  it('queues a completed task with a PR for fix-comments', async () => {
+    store.upsertTask({
+      key: 'PROJ-1', summary: 'Test', description: 'Test',
+      priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
+      status: 'completed', prUrl: 'https://github.com/org/repo/pull/42', prNumber: 42, branchName: 'jiranimo/PROJ-1-test',
+      trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    const res = await request(app).post('/api/tasks/PROJ-1/fix-comments');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('queued');
+    expect(res.body.taskMode).toBe('fix-comments');
+  });
+});
+
 describe('POST /api/tasks/:key/cancel-resume', () => {
   it('cancels a pending resume', async () => {
     store.upsertTask({

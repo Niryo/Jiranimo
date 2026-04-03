@@ -68,6 +68,9 @@ function taskCard(task) {
 
   if (task.prUrl) {
     meta += `<a href="${task.prUrl}" target="_blank">View PR</a>`;
+    if (task.fixedPrCommentIds && task.fixedPrCommentIds.length > 0) {
+      meta += `<span title="Fixed comment IDs: ${escapeHtml(task.fixedPrCommentIds.join(', '))}">Fixed: ${task.fixedPrCommentIds.length} comment${task.fixedPrCommentIds.length === 1 ? '' : 's'}</span>`;
+    }
   }
   if (task.claudeCostUsd) {
     meta += `<span>$${task.claudeCostUsd.toFixed(2)}</span>`;
@@ -94,6 +97,11 @@ function taskCard(task) {
     if (task.recoveryState === 'resume-cancelled') {
       extra += `<button class="btn" onclick="resumeTask('${task.key}')">Resume Now</button>`;
     }
+  }
+
+  // Show Fix Comments button for tasks that have a PR
+  if (task.prUrl && task.prNumber && (task.status === 'completed' || task.status === 'failed')) {
+    extra += `<button class="btn btn-fix-comments" onclick="fixComments('${task.key}')">Fix Comments</button>`;
   }
 
   // Show conversation log button for tasks that have been started
@@ -239,6 +247,14 @@ async function resumeTask(key) {
     await fetch(`${API_BASE}/api/tasks/${key}/resume`, { method: 'POST' });
   } catch (err) {
     console.error('Failed to resume task:', err);
+  }
+}
+
+async function fixComments(key) {
+  try {
+    await fetch(`${API_BASE}/api/tasks/${key}/fix-comments`, { method: 'POST' });
+  } catch (err) {
+    console.error('Failed to trigger fix comments:', err);
   }
 }
 

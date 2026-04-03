@@ -20,6 +20,7 @@ interface PromptTask {
   jiraUrl: string;
   previousTaskMode?: TaskMode;
   planContent?: string;
+  fixedPrCommentIds?: string[];
 }
 
 export const planFilePath = (key: string) => `/tmp/jiranimo-${key}-plan.md`;
@@ -54,6 +55,13 @@ interface ScreenshotContext {
   branchName: string;
 }
 
+interface FixCommentsContext {
+  prUrl: string;
+  prNumber: number;
+  branchName: string;
+  fixedPrCommentIds: string[];
+}
+
 interface RecoveryContext {
   wasInterrupted: boolean;
   resumeMode: 'claude-session' | 'fresh-recovery';
@@ -71,6 +79,7 @@ export function buildPrompt(
   mode: TaskMode = 'implement',
   screenshotContext?: ScreenshotContext,
   recoveryContext?: RecoveryContext,
+  fixCommentsContext?: FixCommentsContext,
 ): string {
   const { branchPrefix, defaultBaseBranch, pushRemote, createDraftPr } = config.git;
   const taskJson = JSON.stringify(toPromptContext(task), null, 2);
@@ -107,6 +116,59 @@ Before making any further changes, inspect the current repo state carefully:
 - Use the restored Claude conversation history if available, but still verify the filesystem before acting
 `
     : '';
+
+  if (mode === 'fix-comments' && fixCommentsContext) {
+    const { prUrl, prNumber, branchName, fixedPrCommentIds } = fixCommentsContext;
+    const alreadyFixed = fixedPrCommentIds.length > 0
+      ? `\nAlready-fixed comment IDs (skip these):\n${fixedPrCommentIds.map(id => `- ${id}`).join('\n')}`
+      : '\nNo comments have been fixed yet — all review comments are new.';
+    return `You are fixing GitHub PR review comments for a Jira task. Your job is to address only the NEW (unfixed) review comments on the PR.
+
+## Task
+\`\`\`json
+${taskJson}
+\`\`\`
+
+### Context
+- Branch: \`${branchName}\`
+- PR: ${prUrl} (#${prNumber})
+${alreadyFixed}
+
+**Step 1 - Check out the branch**:
+\`\`\`
+git -C ${repoPath} worktree add ${worktreePath} ${branchName}
+cd ${worktreePath}
+\`\`\`
+
+**Step 2 - Fetch PR review comments**:
+\`\`\`bash
+gh pr view ${prNumber} --json reviewDecision,reviews,comments --jq '{reviews: .reviews, comments: .comments}'
+\`\`\`
+Each comment/review object has an \`id\` field. Compare against the already-fixed list above.
+
+**Step 3 - Fix each NEW comment**:
+- Address each unfixed review comment in the code
+- If a comment is outdated or no longer applicable, note it but still include its ID in the fixed list
+
+**Step 4 - Commit and push**:
+\`\`\`
+git add -A
+git commit -m "fix(${task.key}): address PR review comments"
+git push
+\`\`\`
+
+**Step 5 - Record fixed comment IDs**:
+Call \`jiranimo_report_fixed_comments\` with the IDs of ALL comments you just addressed (task_key="${task.key}").
+
+**Step 6 - Report back**:
+- \`jiranimo_complete\` — once all comments are fixed (task_key="${task.key}")
+- \`jiranimo_fail\` — if you hit an unrecoverable error (task_key="${task.key}")
+
+**Clean up the worktree**:
+\`\`\`
+git -C ${repoPath} worktree remove ${worktreePath}
+\`\`\`${appendSection}`;
+  }
 
   if (mode === 'screenshot' && screenshotContext) {
     const { prUrl, prNumber, branchName } = screenshotContext;

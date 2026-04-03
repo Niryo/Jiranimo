@@ -212,4 +212,45 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('feat/');
     expect(prompt).toContain('develop');
   });
+
+  describe('fix-comments mode', () => {
+    const fixCtx = {
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prNumber: 42,
+      branchName: 'jiranimo/PROJ-123-feature',
+      fixedPrCommentIds: [],
+    };
+
+    it('generates fix-comments prompt with PR context', () => {
+      const prompt = buildPrompt(baseTask, baseConfig, repoPath, 'fix-comments', undefined, undefined, fixCtx);
+      expect(prompt).toContain('fixing GitHub PR review comments');
+      expect(prompt).toContain('https://github.com/org/repo/pull/42');
+      expect(prompt).toContain('jiranimo/PROJ-123-feature');
+      expect(prompt).toContain('gh pr view 42');
+    });
+
+    it('tells Claude no comments are fixed yet when fixedPrCommentIds is empty', () => {
+      const prompt = buildPrompt(baseTask, baseConfig, repoPath, 'fix-comments', undefined, undefined, fixCtx);
+      expect(prompt).toContain('No comments have been fixed yet');
+    });
+
+    it('lists already-fixed comment IDs so Claude skips them', () => {
+      const ctxWithFixed = { ...fixCtx, fixedPrCommentIds: ['id-aaa', 'id-bbb'] };
+      const prompt = buildPrompt(baseTask, baseConfig, repoPath, 'fix-comments', undefined, undefined, ctxWithFixed);
+      expect(prompt).toContain('id-aaa');
+      expect(prompt).toContain('id-bbb');
+      expect(prompt).toContain('Already-fixed comment IDs');
+    });
+
+    it('includes jiranimo_report_fixed_comments instruction', () => {
+      const prompt = buildPrompt(baseTask, baseConfig, repoPath, 'fix-comments', undefined, undefined, fixCtx);
+      expect(prompt).toContain('jiranimo_report_fixed_comments');
+    });
+
+    it('falls back to implement mode when fixCommentsContext is missing', () => {
+      const prompt = buildPrompt(baseTask, baseConfig, repoPath, 'fix-comments');
+      // Without context, the fix-comments block is skipped and falls through to implement
+      expect(prompt).toContain('jiranimo_report_pr');
+    });
+  });
 });

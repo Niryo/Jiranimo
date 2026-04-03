@@ -1,5 +1,5 @@
 export type TaskStatus = 'queued' | 'in-progress' | 'interrupted' | 'completed' | 'failed';
-export type TaskMode = 'plan' | 'implement' | 'screenshot';
+export type TaskMode = 'plan' | 'implement' | 'screenshot' | 'fix-comments';
 export type RecoveryState = 'none' | 'resume-pending' | 'resume-cancelled' | 'resuming';
 export type ResumeMode = 'claude-session' | 'fresh-recovery';
 export type EffectType = 'pipeline-status-sync' | 'completion-comment' | 'plan-comment';
@@ -60,6 +60,7 @@ export interface TaskRecord {
   resumeMode?: ResumeMode;
   screenshotFailed?: boolean;
   screenshotFailReason?: string;
+  fixedPrCommentIds?: string[];
   trackedBoards: string[];
   lastSeenOnBoardAt?: string;
   submittedFromBoardId?: string;

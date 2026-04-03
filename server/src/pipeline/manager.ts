@@ -256,6 +256,35 @@ export class PipelineManager extends EventEmitter {
     this.emitSyncNeeded();
   }
 
+  fixComments(key: string): TaskRecord {
+    const task = this.store.getTask(key);
+    if (!task) throw new Error(`Task ${key} not found`);
+    if (!task.prUrl || !task.prNumber) throw new Error(`Task ${key} has no PR to fix comments for`);
+
+    const newStatus = transition(task.status, 'fix-comments');
+    const updated = this.store.updateTaskStatus(key, newStatus, {
+      taskMode: 'fix-comments',
+      errorMessage: undefined,
+      completedAt: undefined,
+      activePid: undefined,
+    });
+    this.store.enqueueTask(key);
+    this.store.flushSync();
+    this.emitSyncNeeded();
+    setImmediate(() => this.processQueue());
+    return updated;
+  }
+
+  reportFixedComments(key: string, commentIds: string[]): void {
+    const current = this.store.getTask(key);
+    if (!current) return;
+    const existing = current.fixedPrCommentIds ?? [];
+    const merged = [...new Set([...existing, ...commentIds])];
+    this.store.patchTask(key, { fixedPrCommentIds: merged });
+    this.store.flushSync();
+    this.emitSyncNeeded();
+  }
+
   reportScreenshotFailed(key: string, reason: string): void {
     const current = this.store.getTask(key);
     if (!current) return;
@@ -601,6 +630,14 @@ export class PipelineManager extends EventEmitter {
       const screenshotContext = taskMode === 'screenshot' && started.prUrl && started.branchName
         ? { prUrl: started.prUrl, prNumber: started.prNumber!, branchName: started.branchName }
         : undefined;
+      const fixCommentsContext = taskMode === 'fix-comments' && started.prUrl && started.prNumber && started.branchName
+        ? {
+            prUrl: started.prUrl,
+            prNumber: started.prNumber,
+            branchName: started.branchName,
+            fixedPrCommentIds: started.fixedPrCommentIds ?? [],
+          }
+        : undefined;
       const prompt = buildPrompt(
         { ...started, comments: started.comments ?? [] },
         this.config,
@@ -618,6 +655,7 @@ export class PipelineManager extends EventEmitter {
               logPath,
             }
           : undefined,
+        fixCommentsContext,
       );
 
       let sessionLogged = false;

@@ -30,6 +30,14 @@ describe('state machine', () => {
     expect(() => transition('completed', 'retry')).toThrow('Invalid transition');
   });
 
+  it('completed + fix-comments = queued', () => {
+    expect(transition('completed', 'fix-comments')).toBe('queued');
+  });
+
+  it('failed + fix-comments = queued', () => {
+    expect(transition('failed', 'fix-comments')).toBe('queued');
+  });
+
   it('queued + fail = failed (config error)', () => {
     expect(transition('queued', 'fail')).toBe('failed');
   });
