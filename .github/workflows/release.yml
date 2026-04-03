@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
           cache: npm
 
@@ -83,7 +83,7 @@ jobs:
         run: |
           gh release create "v${{ steps.version.outputs.value }}" \
             ".artifacts/release/jiranimo-extension-v${{ steps.version.outputs.value }}.zip" \
-            ".artifacts/release/jiranimo-server-node20-v${{ steps.version.outputs.value }}.zip" \
+            ".artifacts/release/jiranimo-server-node24-v${{ steps.version.outputs.value }}.zip" \
             ".artifacts/release/jiranimo-${{ steps.version.outputs.value }}.tgz" \
             ".artifacts/release/SHA256SUMS.txt" \
             --title "v${{ steps.version.outputs.value }}" \

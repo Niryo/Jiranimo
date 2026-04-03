@@ -11,5 +11,5 @@ It ships as two parts:
 ## Release Artifacts
 
 - `jiranimo-extension-vX.Y.Z.zip` for Chrome Web Store upload
-- `jiranimo-server-node20-vX.Y.Z.zip` for a compact standalone Node 20 server bundle
+- `jiranimo-server-node24-vX.Y.Z.zip` for a compact standalone Node 24 server bundle
 - `jiranimo-X.Y.Z.tgz` for the published npm package

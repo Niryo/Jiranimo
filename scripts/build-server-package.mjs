@@ -24,7 +24,7 @@ await build({
   minify: true,
   format: 'esm',
   platform: 'node',
-  target: 'node20',
+  target: 'node24',
   sourcemap: false,
   legalComments: 'none',
   banner: {
@@ -69,7 +69,7 @@ for (const relativePath of ['index.html', 'style.css', 'app.js', 'logo-mark.svg'
 
 writeFileSync(resolve(distDir, '.build-meta.json'), JSON.stringify({
   builtAt: new Date().toISOString(),
-  target: 'node20',
+  target: 'node24',
 }, null, 2));
 
 cpSync(resolve(distDir, 'index.js'), resolve(stageDir, 'index.js'));
