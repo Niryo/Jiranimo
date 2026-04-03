@@ -63,7 +63,7 @@ describe('loadConfig', () => {
     process.env.TEST_APPEND_PROMPT = 'Always run tests';
 
     vi.mocked(fs.readFileSync).mockReturnValue(
-      JSON.stringify({ claude: { appendSystemPrompt: '$TEST_APPEND_PROMPT' } })
+      JSON.stringify({ claude: { maxBudgetUsd: 2.0, appendSystemPrompt: '$TEST_APPEND_PROMPT' } })
     );
 
     const config = loadConfig({ configPath: '/fake/config.json' });
@@ -76,7 +76,7 @@ describe('loadConfig', () => {
     delete process.env.NONEXISTENT_VAR;
 
     vi.mocked(fs.readFileSync).mockReturnValue(
-      JSON.stringify({ claude: { appendSystemPrompt: '$NONEXISTENT_VAR' } })
+      JSON.stringify({ claude: { maxBudgetUsd: 2.0, appendSystemPrompt: '$NONEXISTENT_VAR' } })
     );
 
     expect(() => loadConfig({ configPath: '/fake/config.json' }))
@@ -95,6 +95,18 @@ describe('loadConfig', () => {
     expect(config.claude.maxBudgetUsd).toBe(3.5);
     // findConfigFile reads once to check existence, loadConfig reads again to parse
     expect(callCount).toBe(3);
+  });
+
+  it('prefers JIRANIMO_CONFIG when no configPath is provided', () => {
+    process.env.JIRANIMO_CONFIG = '/env/config.json';
+    vi.mocked(fs.readFileSync).mockReturnValue(validConfig);
+
+    const config = loadConfig();
+
+    expect(config.claude.maxBudgetUsd).toBe(3.5);
+    expect(fs.readFileSync).toHaveBeenCalledWith('/env/config.json', 'utf-8');
+
+    delete process.env.JIRANIMO_CONFIG;
   });
 
   it('ignores legacy repo location keys in older config files', () => {

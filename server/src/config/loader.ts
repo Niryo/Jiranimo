@@ -45,7 +45,10 @@ function findConfigFile(searchPaths?: string[]): string | undefined {
 }
 
 export function loadConfig(options?: { configPath?: string; searchPaths?: string[] }): ServerConfig {
-  const configPath = options?.configPath ?? findConfigFile(options?.searchPaths);
+  const configPath =
+    options?.configPath ??
+    process.env.JIRANIMO_CONFIG ??
+    findConfigFile(options?.searchPaths);
 
   if (!configPath) {
     return serverConfigSchema.parse({}) as ServerConfig;
