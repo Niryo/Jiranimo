@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { StateStore } from './store.js';
@@ -159,13 +159,11 @@ describe('StateStore', () => {
     store2.destroy();
   });
 
-  it('handles corrupted state file gracefully', async () => {
-    const { writeFileSync } = await import('node:fs');
+  it('refuses to load a corrupted state file so startup cannot overwrite it', () => {
     writeFileSync(statePath, 'not valid json!!!');
 
-    const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
-    expect(store.getAllTasks()).toEqual([]);
-    store.destroy();
+    expect(() => new StateStore({ filePath: statePath, flushDelayMs: 0 }))
+      .toThrow('refusing to start to avoid overwriting existing state');
   });
 
   it('increments server epoch on boot and resets claimed effects', () => {
@@ -254,10 +252,30 @@ describe('StateStore', () => {
       boardType: 'scrum',
       projectKey: 'PROJ',
       issueKeys: [],
+      isCompleteSnapshot: true,
     });
 
     expect(result.deletedTaskKeys).toEqual(['PROJ-1']);
     expect(store.getTask('PROJ-1')).toBeUndefined();
+    store.destroy();
+  });
+
+  it('does not delete tasks from incomplete board presence snapshots', () => {
+    const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
+    store.upsertTask(makeTask({ trackedBoards: ['test.atlassian.net:board-1'] }));
+
+    const result = store.reconcileBoardPresence({
+      boardId: 'board-1',
+      jiraHost: 'test.atlassian.net',
+      boardType: 'scrum',
+      projectKey: 'PROJ',
+      issueKeys: [],
+      isCompleteSnapshot: false,
+    });
+
+    expect(result.deletedTaskKeys).toEqual([]);
+    expect(store.getTask('PROJ-1')).toBeDefined();
+    expect(store.getTask('PROJ-1')?.trackedBoards).toEqual(['test.atlassian.net:board-1']);
     store.destroy();
   });
 });

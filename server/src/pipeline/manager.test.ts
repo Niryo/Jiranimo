@@ -583,6 +583,7 @@ describe('PipelineManager', () => {
       boardType: 'scrum',
       projectKey: 'PROJ',
       issueKeys: [],
+      isCompleteSnapshot: true,
     });
 
     expect(result.deletedTaskKeys).toEqual(['PROJ-1']);
@@ -609,6 +610,7 @@ describe('PipelineManager', () => {
       boardType: 'scrum',
       projectKey: 'PROJ',
       issueKeys: [],
+      isCompleteSnapshot: true,
     });
 
     expect(result.deletedTaskKeys).toEqual([]);

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import type {
@@ -100,31 +100,44 @@ export class StateStore {
   }
 
   private load(): AppState {
+    let raw: string;
     try {
-      const raw = readFileSync(this.filePath, 'utf-8');
-      const parsed = JSON.parse(raw) as Partial<AppState> & { tasks?: Record<string, TaskRecord> };
-      const tasks = parsed?.tasks && typeof parsed.tasks === 'object'
-        ? Object.fromEntries(
-            Object.entries(parsed.tasks)
-              .map(([key, task]) => [key, normalizeTask(task)]),
-          )
-        : {};
-      const boards = parsed?.boards && typeof parsed.boards === 'object' ? parsed.boards : {};
-      return {
-        meta: parsed?.meta && typeof parsed.meta === 'object'
-          ? {
-              serverEpoch: Number(parsed.meta.serverEpoch ?? 0),
-              revision: Number(parsed.meta.revision ?? 0),
-            }
-          : defaultMeta(),
-        tasks,
-        queue: Array.isArray(parsed?.queue) ? parsed.queue.filter((key): key is string => typeof key === 'string') : [],
-        effects: parsed?.effects && typeof parsed.effects === 'object' ? parsed.effects : {},
-        boards,
-      };
-    } catch {
-      return emptyState();
+      raw = readFileSync(this.filePath, 'utf-8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return emptyState();
+      }
+      throw new Error(`Failed to read state file ${this.filePath}: ${(err as Error).message}`);
     }
+
+    let parsed: Partial<AppState> & { tasks?: Record<string, TaskRecord> };
+    try {
+      parsed = JSON.parse(raw) as Partial<AppState> & { tasks?: Record<string, TaskRecord> };
+    } catch (err) {
+      throw new Error(
+        `Invalid JSON in state file ${this.filePath}; refusing to start to avoid overwriting existing state: ${(err as Error).message}`,
+      );
+    }
+
+    const tasks = parsed?.tasks && typeof parsed.tasks === 'object'
+      ? Object.fromEntries(
+          Object.entries(parsed.tasks)
+            .map(([key, task]) => [key, normalizeTask(task)]),
+        )
+      : {};
+    const boards = parsed?.boards && typeof parsed.boards === 'object' ? parsed.boards : {};
+    return {
+      meta: parsed?.meta && typeof parsed.meta === 'object'
+        ? {
+            serverEpoch: Number(parsed.meta.serverEpoch ?? 0),
+            revision: Number(parsed.meta.revision ?? 0),
+          }
+        : defaultMeta(),
+      tasks,
+      queue: Array.isArray(parsed?.queue) ? parsed.queue.filter((key): key is string => typeof key === 'string') : [],
+      effects: parsed?.effects && typeof parsed.effects === 'object' ? parsed.effects : {},
+      boards,
+    };
   }
 
   private mutate(mutator: () => void): void {
@@ -147,7 +160,10 @@ export class StateStore {
       this.flushTimer = null;
     }
     mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), 'utf-8');
+    const raw = JSON.stringify(this.state, null, 2);
+    const tempPath = `${this.filePath}.tmp-${process.pid}`;
+    writeFileSync(tempPath, raw, 'utf-8');
+    renameSync(tempPath, this.filePath);
   }
 
   getMeta(): AppMeta {
@@ -313,6 +329,7 @@ export class StateStore {
     const boardKey = boardTrackingKey(input.jiraHost, input.boardId);
     const issueKeys = normalizeStringArray(input.issueKeys);
     const issueKeySet = new Set(issueKeys);
+    const isCompleteSnapshot = input.isCompleteSnapshot === true;
     const deletedTaskKeys: string[] = [];
     const updatedTaskKeys = new Set<string>();
 
@@ -323,6 +340,7 @@ export class StateStore {
         boardType: input.boardType,
         projectKey: input.projectKey,
         issueKeys,
+        isCompleteSnapshot,
         syncedAt,
       };
 
@@ -344,6 +362,10 @@ export class StateStore {
         }
 
         if (!tracksBoard) {
+          continue;
+        }
+
+        if (!isCompleteSnapshot) {
           continue;
         }
 

@@ -696,6 +696,7 @@
           boardType: boardConfig.boardType,
           projectKey: boardConfig.projectKey || undefined,
           issueKeys,
+          isCompleteSnapshot: true,
         });
         if (!presenceResult.ok) {
           throw new Error(presenceResult.error || presenceResult.data?.error || `Presence sync failed (${presenceResult.status})`);

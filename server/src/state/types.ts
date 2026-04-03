@@ -92,6 +92,7 @@ export interface BoardPresenceSnapshot {
   boardType: JiraBoardType;
   projectKey?: string;
   issueKeys: string[];
+  isCompleteSnapshot?: boolean;
   syncedAt: string;
 }
 

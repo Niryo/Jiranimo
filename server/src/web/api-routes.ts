@@ -86,6 +86,7 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
         boardType,
         projectKey: typeof req.body?.projectKey === 'string' ? req.body.projectKey : undefined,
         issueKeys: issueKeys.filter((issueKey): issueKey is string => typeof issueKey === 'string'),
+        isCompleteSnapshot: req.body?.isCompleteSnapshot === true,
       });
       res.json(result);
     } catch (err) {

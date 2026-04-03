@@ -196,6 +196,7 @@ export class PipelineManager extends EventEmitter {
     boardType: JiraBoardType;
     projectKey?: string;
     issueKeys: string[];
+    isCompleteSnapshot?: boolean;
   }): {
     boardKey: string;
     syncedAt: string;
