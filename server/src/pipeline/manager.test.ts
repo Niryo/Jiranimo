@@ -519,4 +519,71 @@ describe('PipelineManager', () => {
     mgr.shutdown();
     store.destroy();
   });
+
+  describe('fixComments', () => {
+    it('throws if task not found', () => {
+      const mgr = new PipelineManager(store, testConfig, singleRepoTarget);
+      expect(() => mgr.fixComments('NOPE-1')).toThrow('Task NOPE-1 not found');
+      mgr.shutdown();
+      store.destroy();
+    });
+
+    it('throws if task has no PR', () => {
+      const mgr = new PipelineManager(store, testConfig, singleRepoTarget);
+      mgr.submitTask(sampleInput);
+      // Wait until completed (no PR set)
+      store.updateTaskStatus('PROJ-1', 'completed', {});
+      expect(() => mgr.fixComments('PROJ-1')).toThrow('has no PR');
+      mgr.shutdown();
+      store.destroy();
+    });
+
+    it('queues a completed task with PR for fix-comments', () => {
+      const mgr = new PipelineManager(store, testConfig, singleRepoTarget);
+      mgr.submitTask(sampleInput);
+      store.updateTaskStatus('PROJ-1', 'completed', {});
+      store.patchTask('PROJ-1', { prUrl: 'https://github.com/org/repo/pull/42', prNumber: 42, branchName: 'jiranimo/PROJ-1' });
+
+      const task = mgr.fixComments('PROJ-1');
+      expect(task.status).toBe('queued');
+      expect(task.taskMode).toBe('fix-comments');
+      mgr.shutdown();
+      store.destroy();
+    });
+
+    it('queues a failed task with PR for fix-comments', () => {
+      const mgr = new PipelineManager(store, testConfig, singleRepoTarget);
+      mgr.submitTask(sampleInput);
+      store.updateTaskStatus('PROJ-1', 'failed', { errorMessage: 'oops' });
+      store.patchTask('PROJ-1', { prUrl: 'https://github.com/org/repo/pull/42', prNumber: 42, branchName: 'jiranimo/PROJ-1' });
+
+      const task = mgr.fixComments('PROJ-1');
+      expect(task.status).toBe('queued');
+      expect(task.taskMode).toBe('fix-comments');
+      mgr.shutdown();
+      store.destroy();
+    });
+  });
+
+  describe('reportFixedComments', () => {
+    it('accumulates fixed comment IDs across calls', () => {
+      const mgr = new PipelineManager(store, testConfig, singleRepoTarget);
+      mgr.submitTask(sampleInput);
+
+      mgr.reportFixedComments('PROJ-1', ['id-1', 'id-2']);
+      expect(store.getTask('PROJ-1')?.fixedPrCommentIds).toEqual(['id-1', 'id-2']);
+
+      mgr.reportFixedComments('PROJ-1', ['id-2', 'id-3']);
+      expect(store.getTask('PROJ-1')?.fixedPrCommentIds).toEqual(['id-1', 'id-2', 'id-3']);
+      mgr.shutdown();
+      store.destroy();
+    });
+
+    it('is a no-op for unknown task key', () => {
+      const mgr = new PipelineManager(store, testConfig, singleRepoTarget);
+      expect(() => mgr.reportFixedComments('NOPE-1', ['id-1'])).not.toThrow();
+      mgr.shutdown();
+      store.destroy();
+    });
+  });
 });

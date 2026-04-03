@@ -280,3 +280,10 @@ section h2 {
   color: #58a6ff;
 }
 .btn-log:hover { background: #0d2033; border-color: #388bfd; }
+
+/* "Fix Comments" button variant */
+.btn-fix-comments {
+  border-color: #3fb950;
+  color: #3fb950;
+}
+.btn-fix-comments:hover { background: #0d2f15; border-color: #56d364; }
