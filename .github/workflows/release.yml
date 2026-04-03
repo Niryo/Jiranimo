@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: release-master
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+jobs:
+  release:
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release): v') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PUSH_TOKEN || github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compute next version
+        id: version
+        run: echo "value=$(node scripts/next-version.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Sync versioned files
+        run: node scripts/set-version.mjs "${{ steps.version.outputs.value }}"
+
+      - name: Refresh package lock
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Run server tests
+        run: npm run test:server
+
+      - name: Run extension tests
+        run: npm run test:extension
+
+      - name: Build production server bundle
+        run: npm run build:server
+
+      - name: Build production extension package
+        run: npm run build:extension
+
+      - name: Package release artifacts
+        run: npm run package:release
+
+      - name: Commit release metadata
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json server/package.json server/README.md server/LICENSE server/src/mcp/server.ts extension/package.json extension/manifest.json packages/assets/package.json
+          git commit -m "chore(release): v${{ steps.version.outputs.value }}"
+
+      - name: Publish npm package
+        run: npm publish ".artifacts/release/jiranimo-${{ steps.version.outputs.value }}.tgz" --access public --provenance
+
+      - name: Create release tag
+        run: git tag "v${{ steps.version.outputs.value }}"
+
+      - name: Push release commit and tag
+        run: git push origin HEAD:master --follow-tags
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUSH_TOKEN || github.token }}
+        run: |
+          gh release create "v${{ steps.version.outputs.value }}" \
+            ".artifacts/release/jiranimo-extension-v${{ steps.version.outputs.value }}.zip" \
+            ".artifacts/release/jiranimo-server-node20-v${{ steps.version.outputs.value }}.zip" \
+            ".artifacts/release/jiranimo-${{ steps.version.outputs.value }}.tgz" \
+            ".artifacts/release/SHA256SUMS.txt" \
+            --title "v${{ steps.version.outputs.value }}" \
+            --generate-notes

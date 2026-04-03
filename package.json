@@ -1,5 +1,6 @@
 {
   "name": "jiranimo",
+  "version": "1.0.0",
   "private": true,
   "workspaces": [
     "packages/assets",
@@ -15,10 +16,20 @@
     "dev:clean": "rm -f \"$HOME/.jiranimo/state.json\" && rm -rf \"$HOME/.jiranimo/logs\" && echo 'Jiranimo state cleaned'",
     "dev:reset": "npm run dev:clean && rm -rf .chrome-dev-profile && echo 'Jiranimo reset done'",
     "start": "npm run start --workspace=server",
+    "build:server": "npm run build --workspace=server",
+    "build:extension": "node scripts/build-extension-package.mjs",
+    "package:release": "bash scripts/package-release.sh",
+    "test:server": "npm run test --workspace=server",
+    "test:extension": "npm exec --workspace=server -- vitest run --config ../extension/vitest.config.mjs",
     "test": "npm run test --workspace=server",
     "test:integration": "npm run test:integration --workspace=server",
     "test:e2e": "npm run test:e2e --workspace=server",
     "test:all": "npm run test:all --workspace=server",
-    "test:e2e:cleanup": "npm run test:e2e:cleanup --workspace=server"
+    "test:e2e:cleanup": "npm run test:e2e:cleanup --workspace=server",
+    "release:next-version": "node scripts/next-version.mjs",
+    "release:set-version": "node scripts/set-version.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.4"
   }
 }

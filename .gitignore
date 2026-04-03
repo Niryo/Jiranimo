@@ -16,3 +16,4 @@ server/.dev-self-logs/
 .dev-pids
 extension/icons/
 server/src/web/public/logo-mark.svg
+.artifacts/release/
