@@ -75,9 +75,10 @@ class AppLogger implements Logger {
     }
 
     const line = formatLogLine(level, this.scope, message, meta);
+    const plainLine = stripAnsi(line);
 
     try {
-      appendFileSync(this.filePath, `${line}\n`, 'utf-8');
+      appendFileSync(this.filePath, `${plainLine}\n`, 'utf-8');
     } catch {
       // Keep the app running even if the log file is unavailable.
     }
@@ -92,6 +93,10 @@ class AppLogger implements Logger {
     }
     console.log(line);
   }
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\u001B\[[0-9;]*m/g, '');
 }
 
 export function createLogger(serverConfig?: Pick<ServerConfig, 'logsDir' | 'logging'>, scope?: string): Logger {

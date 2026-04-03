@@ -9,6 +9,8 @@ import { createApp } from './web/server.js';
 import { attachWebSocket } from './web/ws-handler.js';
 import { resolveStartupPath, resolveRepoTarget } from './runtime-target.js';
 import { createLogger } from './logging/logger.js';
+import { assertRequiredCliToolsAvailable } from './startup/required-tools.js';
+import { formatStartupFailureMessage } from './startup/error-format.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const EXTENSION_DIR = resolve(__dirname, '..', '..', 'extension');
@@ -18,6 +20,7 @@ async function main() {
   const logger = createLogger(config, 'server');
   const targetPath = resolveStartupPath();
   const repoTarget = resolveRepoTarget(targetPath);
+  assertRequiredCliToolsAvailable(config);
 
   const store = new StateStore(config.statePath ? { filePath: config.statePath } : undefined);
   const meta = store.beginServerEpoch();
@@ -77,6 +80,20 @@ function startExtensionWatcher(wsHandler: ReturnType<typeof attachWebSocket>, lo
 }
 
 main().catch((err) => {
-  createLogger(undefined, 'server').error('Startup failed', { error: (err as Error).message });
+  createLogger(undefined, 'server').error(formatStartupFailureMessage(err, {
+    color: shouldUseStartupColors(),
+  }));
   process.exit(1);
 });
+
+function shouldUseStartupColors(): boolean {
+  if (process.env.NO_COLOR) {
+    return false;
+  }
+
+  if (process.env.FORCE_COLOR && process.env.FORCE_COLOR !== '0') {
+    return true;
+  }
+
+  return !!process.stderr.isTTY;
+}

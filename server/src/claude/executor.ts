@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { OutputParser } from './output-parser.js';
+import { parseClaudeCommand } from './command.js';
 import type { ClaudeConfig } from '../config/types.js';
 import type { ExecutionResult, ClaudeEvent } from './types.js';
 
@@ -19,11 +20,7 @@ export async function executeClaudeCode(options: ExecutorOptions): Promise<Execu
   const { prompt, cwd, config, timeoutMs = 30 * 60 * 1000, onEvent, onOutput, resumeSessionId } = options;
   const startTime = Date.now();
 
-  const commandStr = config.command ?? 'claude';
-  // Split command string into program + pre-args (e.g. "node /path/to/script.mjs" → ["node", "/path/to/script.mjs"])
-  const commandParts = commandStr.split(/\s+/);
-  const program = commandParts[0];
-  const preArgs = commandParts.slice(1);
+  const { program, preArgs } = parseClaudeCommand(config.command);
   const args = [...preArgs, ...buildArgs(prompt, config, resumeSessionId)];
 
   return new Promise<ExecutionResult>((resolve, reject) => {

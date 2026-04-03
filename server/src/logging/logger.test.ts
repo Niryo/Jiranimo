@@ -71,4 +71,24 @@ describe('createLogger', () => {
     expect(file).toContain('useful-line');
     expect(file).not.toContain('debug-noise');
   });
+
+  it('strips ANSI color codes before writing to the log file', () => {
+    const logsDir = mkdtempSync(join(tmpdir(), 'jiranimo-logger-test-'));
+    tempDirs.push(logsDir);
+    const logger = createLogger({
+      logsDir,
+      logging: { level: 'info', logHttpRequests: false, logHttpBodies: false, logClaudeRawOutput: false },
+    });
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      logger.error('\u001B[31mred failure\u001B[0m');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+
+    const file = readFileSync(join(logsDir, 'server.log'), 'utf-8');
+    expect(file).toContain('red failure');
+    expect(file).not.toContain('\u001B[31m');
+  });
 });
