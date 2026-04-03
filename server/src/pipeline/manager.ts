@@ -144,6 +144,8 @@ export class PipelineManager extends EventEmitter {
     const persisted = this.store.upsertTask(task);
     this.store.enqueueTask(task.key);
     this.store.flushSync();
+    const verb = task.taskMode === 'screenshot' ? 'screenshot' : task.taskMode === 'fix-comments' ? 'fix comments for' : 'implement';
+    this.logger.info(`Received task to ${verb}: ${task.summary} (${task.key})`);
     this.emit('task-created', persisted);
     this.emitSyncNeeded();
     setImmediate(() => this.processQueue());
@@ -618,14 +620,10 @@ export class PipelineManager extends EventEmitter {
     mkdirSync(workspacePath, { recursive: true });
 
     this.activeCount++;
-    const concurrencyLabel = this.config.pipeline.concurrency === 0 ? 'unlimited' : String(this.config.pipeline.concurrency);
     const taskLogger = this.logger.child(key);
-    taskLogger.info('Task started', {
-      summary: task.summary,
-      activeCount: this.activeCount,
-      concurrency: concurrencyLabel,
-      resumed: wasInterrupted,
-    });
+    const resumeLabel = wasInterrupted ? ' (resuming previous run)' : '';
+    taskLogger.info(`Starting task: ${task.summary}${resumeLabel}`);
+    taskLogger.info('Preparing workspace');
 
     const started = this.transitionTask(key, 'start', {
       startedAt: new Date().toISOString(),
@@ -651,6 +649,18 @@ export class PipelineManager extends EventEmitter {
     let capturedSessionId: string | undefined;
 
     try {
+      const needsRepoPick = !started.repoPath && this.repoTarget.kind !== 'single-repo';
+      const needsTaskMode = started.taskMode == null;
+      const repoDecisionSource = started.repoPath
+        ? 'task state'
+        : this.repoTarget.kind === 'single-repo'
+          ? 'single-repo config'
+          : 'repo picker';
+      const taskModeDecisionSource = started.taskMode != null ? 'task state' : 'task classifier';
+
+      if (needsRepoPick) taskLogger.info('Choosing repository to operate on');
+      if (needsTaskMode) taskLogger.info('Determining task mode');
+
       const [repoPath, taskMode] = await Promise.all([
         started.repoPath
           ? Promise.resolve(started.repoPath)
@@ -661,6 +671,9 @@ export class PipelineManager extends EventEmitter {
           ? Promise.resolve(started.taskMode)
           : resolveTaskMode({ ...started, comments: started.comments ?? [] }),
       ]);
+
+      taskLogger.info(`Repository selected: ${repoPath} (source: ${repoDecisionSource})`);
+      taskLogger.info(`Task mode selected: ${taskMode} (source: ${taskModeDecisionSource})`);
 
       this.store.patchTask(key, { repoPath, taskMode, logPath });
       this.store.flushSync();
@@ -690,6 +703,13 @@ export class PipelineManager extends EventEmitter {
           : undefined,
       );
 
+      taskLogger.info('Building Claude prompt');
+      taskLogger.info(
+        wasInterrupted
+          ? (started.claudeSessionId ? `Launching Claude Code with session resume (${started.claudeSessionId})` : 'Launching Claude Code in recovery mode')
+          : 'Launching Claude Code',
+      );
+
       let sessionLogged = false;
       const result: ExecutionResult = await executeClaudeCode({
         prompt,
@@ -709,14 +729,25 @@ export class PipelineManager extends EventEmitter {
           if (event.type === 'init' && event.sessionId && !sessionLogged) {
             sessionLogged = true;
             capturedSessionId = event.sessionId;
-            taskLogger.info('Claude session started', { sessionId: event.sessionId });
+            taskLogger.info(`Claude session ready: ${event.sessionId}`);
           } else if (event.type === 'result') {
-            taskLogger.info('Claude result received', {
-              success: !event.isError,
-              summary: event.text?.slice(0, 200) || '',
-            });
-          } else if (event.text) {
-            taskLogger.debug('Claude message', { text: event.text });
+            const costLabel = typeof event.costUsd === 'number' ? ` ($${event.costUsd.toFixed(2)})` : '';
+            if (event.isError) {
+              const suffix = event.text ? `: ${truncateForLog(event.text, 200)}` : '';
+              taskLogger.info(`Claude finished with error${costLabel}${suffix}`);
+            } else {
+              taskLogger.info(`Claude finished successfully${costLabel}`);
+            }
+          } else if (event.type === 'message') {
+            const progressText = normalizeClaudeProgressText(event.text);
+            if (progressText) {
+              taskLogger.info(`Claude progress: ${truncateForLog(progressText, 300)}`);
+            }
+            if (event.toolUse) {
+              for (const tool of event.toolUse) {
+                taskLogger.info(`Claude action: ${summarizeClaudeAction(tool.name, tool.input)}`);
+              }
+            }
           }
         },
         onOutput: (raw: string) => {
@@ -740,6 +771,7 @@ export class PipelineManager extends EventEmitter {
       let compactLog: string | undefined;
       const compactSessionId = result.sessionId ?? capturedSessionId;
       if (compactSessionId) {
+        taskLogger.info('Generating compact Claude summary');
         try {
           compactLog = await generateCompactLog(compactSessionId, this.config.claude, workspacePath);
         } catch {
@@ -787,13 +819,14 @@ export class PipelineManager extends EventEmitter {
         });
       }
 
-      taskLogger.info('Task completed', { logPath });
+      taskLogger.info('Task completed');
     } catch (err) {
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
-      taskLogger.error('Task failed', { error: (err as Error).message, logPath });
+      taskLogger.error(`Task failed: ${(err as Error).message}`);
 
       let compactLog: string | undefined;
       if (capturedSessionId) {
+        taskLogger.info('Generating compact Claude summary from failed run');
         try {
           compactLog = await generateCompactLog(capturedSessionId, this.config.claude, workspacePath);
         } catch {
@@ -820,4 +853,49 @@ export class PipelineManager extends EventEmitter {
       this.processQueue();
     }
   }
+}
+
+function normalizeClaudeProgressText(text?: string): string | undefined {
+  if (!text) return undefined;
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return normalized || undefined;
+}
+
+function truncateForLog(text: string, maxLength: number): string {
+  return text.length <= maxLength ? text : `${text.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function summarizeClaudeAction(toolName: string, input: Record<string, unknown>): string {
+  const filePath = firstNonEmptyString(input.file_path, input.path);
+  const command = firstNonEmptyString(input.command);
+  const pattern = firstNonEmptyString(input.pattern);
+  const query = firstNonEmptyString(input.query);
+
+  switch (toolName) {
+    case 'Read':
+      return filePath ? `reading ${filePath}` : 'reading a file';
+    case 'Write':
+    case 'Edit':
+    case 'MultiEdit':
+      return filePath ? `editing ${filePath}` : 'editing files';
+    case 'Bash':
+      return command ? `running ${truncateForLog(command, 80)}` : 'running a shell command';
+    case 'Grep':
+      return pattern ? `searching for ${truncateForLog(pattern, 80)}` : 'searching the codebase';
+    case 'Glob':
+      return query ? `listing files matching ${truncateForLog(query, 80)}` : 'listing files';
+    default: {
+      const detail = filePath ?? command ?? pattern ?? query;
+      return detail ? `${toolName} (${truncateForLog(detail, 80)})` : toolName;
+    }
+  }
+}
+
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
 }

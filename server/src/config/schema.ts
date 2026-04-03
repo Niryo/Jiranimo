@@ -32,7 +32,7 @@ const webConfigSchema = z.object({
 
 const loggingConfigSchema = z.object({
   level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  logHttpRequests: z.boolean().default(true),
+  logHttpRequests: z.boolean().default(false),
   logHttpBodies: z.boolean().default(false),
   logClaudeRawOutput: z.boolean().default(false),
 });
@@ -51,7 +51,7 @@ export const serverConfigSchema = z.object({
   web: webConfigSchema.default({ port: 3456, host: '127.0.0.1' }),
   logging: loggingConfigSchema.default({
     level: 'info',
-    logHttpRequests: true,
+    logHttpRequests: false,
     logHttpBodies: false,
     logClaudeRawOutput: false,
   }),

@@ -32,6 +32,20 @@ describe('OutputParser', () => {
     expect(events[0].text).toBe('Hello world');
   });
 
+  it('includes assistant thinking blocks in message text', () => {
+    const parser = new OutputParser();
+    const events = collectEvents(parser);
+
+    parser.feed(JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'thinking', thinking: 'Inspecting the repo first.' }] },
+    }) + '\n');
+
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('message');
+    expect(events[0].text).toBe('Inspecting the repo first.');
+  });
+
   it('parses a success result', () => {
     const parser = new OutputParser();
     const events = collectEvents(parser);

@@ -21,6 +21,7 @@ describe('serverConfigSchema', () => {
     expect(result.git.createDraftPr).toBe(true);
     expect(result.web.port).toBe(3456);
     expect(result.web.host).toBe('127.0.0.1');
+    expect(result.logging.logHttpRequests).toBe(false);
   });
 
   it('accepts full valid config with all fields', () => {

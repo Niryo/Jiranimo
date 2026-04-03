@@ -5,7 +5,7 @@ import type { LoggingConfig, LogLevel, ServerConfig } from '../config/types.js';
 
 export const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
   level: 'info',
-  logHttpRequests: true,
+  logHttpRequests: false,
   logHttpBodies: false,
   logClaudeRawOutput: false,
 };

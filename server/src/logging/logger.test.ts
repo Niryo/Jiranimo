@@ -56,7 +56,7 @@ describe('createLogger', () => {
     tempDirs.push(logsDir);
     const logger = createLogger({
       logsDir,
-      logging: { level: 'info', logHttpRequests: true, logHttpBodies: false, logClaudeRawOutput: false },
+      logging: { level: 'info', logHttpRequests: false, logHttpBodies: false, logClaudeRawOutput: false },
     });
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
