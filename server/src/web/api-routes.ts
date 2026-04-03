@@ -198,6 +198,21 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
     res.json({ acked });
   });
 
+  // GET /api/tasks/:key/compact-log — get compact log summary
+  router.get('/tasks/:key/compact-log', (req: Request, res: Response) => {
+    const key = param(req.params.key);
+    const task = store.getTask(key);
+    if (!task) {
+      res.status(404).json({ error: `Task ${key} not found` });
+      return;
+    }
+    if (!task.compactLog) {
+      res.status(404).json({ error: 'Compact log not available for this task' });
+      return;
+    }
+    res.json({ compactLog: task.compactLog });
+  });
+
   // GET /api/tasks/:key/logs — get task logs
   router.get('/tasks/:key/logs', (req: Request, res: Response) => {
     const key = param(req.params.key);

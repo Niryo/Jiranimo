@@ -17,6 +17,7 @@ import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
 import type { RepoTarget } from '../runtime-target.js';
 import { createLogger, isSuppressedChildProcessLogLine, resolveLoggingConfig, type Logger } from '../logging/logger.js';
 import { fetchPendingGithubReviewComments } from '../github/review-comments.js';
+import { generateCompactLog } from '../claude/compact-log-generator.js';
 
 const RESUME_GRACE_MS = 15_000;
 const EFFECT_CLAIM_LEASE_MS = 30_000;
@@ -733,10 +734,19 @@ export class PipelineManager extends EventEmitter {
 
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
 
+      const taskForLog = this.store.getTask(key);
+      let compactLog: string | undefined;
+      try {
+        compactLog = await generateCompactLog(logLines.join('\n'), taskForLog?.summary ?? key);
+      } catch {
+        // compact log generation is best-effort; don't fail the task
+      }
+
       this.store.patchTask(key, {
         claudeSessionId: result.sessionId ?? this.store.getTask(key)?.claudeSessionId,
         claudeCostUsd: result.costUsd,
         logPath,
+        compactLog,
         activePid: undefined,
       });
       this.store.flushSync();
@@ -776,11 +786,21 @@ export class PipelineManager extends EventEmitter {
     } catch (err) {
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
       taskLogger.error('Task failed', { error: (err as Error).message, logPath });
+
+      let compactLog: string | undefined;
+      try {
+        const taskForLog = this.store.getTask(key);
+        compactLog = await generateCompactLog(logLines.join('\n'), taskForLog?.summary ?? key);
+      } catch {
+        // compact log generation is best-effort
+      }
+
       const currentStatus = this.store.getTask(key)?.status;
       if (currentStatus === 'in-progress') {
         this.transitionTask(key, 'fail', {
           errorMessage: (err as Error).message,
           logPath,
+          compactLog,
           activePid: undefined,
         });
       }

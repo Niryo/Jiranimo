@@ -168,13 +168,62 @@ section h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
+  padding: 12px 16px;
   border-bottom: 1px solid #30363d;
   font-weight: 600;
   font-size: 15px;
   color: #e6edf3;
   flex-shrink: 0;
+  gap: 12px;
 }
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.log-tabs {
+  display: flex;
+  gap: 2px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.log-tab {
+  padding: 3px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: #8b949e;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.log-tab.active {
+  background: #21262d;
+  color: #e6edf3;
+}
+
+.log-tab:hover:not(.active) {
+  color: #c9d1d9;
+}
+
+.btn-copy {
+  padding: 3px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  background: #21262d;
+  color: #c9d1d9;
+  cursor: pointer;
+}
+
+.btn-copy:hover { background: #30363d; }
 
 .modal-close {
   background: none;
@@ -284,3 +333,16 @@ section h2 {
   color: #58a6ff;
 }
 .btn-log:hover { background: #0d2033; border-color: #388bfd; }
+
+/* Compact log entry */
+.conv-compact {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px 20px;
+  color: #c9d1d9;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

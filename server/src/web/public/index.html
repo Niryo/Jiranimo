@@ -52,7 +52,14 @@
     <div class="modal">
       <div class="modal-header">
         <span id="conv-modal-title">Conversation Log</span>
-        <button class="modal-close" onclick="closeConvModal()">✕</button>
+        <div class="modal-header-actions">
+          <div class="log-tabs" id="log-tabs">
+            <button class="log-tab active" id="tab-compact" onclick="switchLogTab('compact')">Compact</button>
+            <button class="log-tab" id="tab-full" onclick="switchLogTab('full')">Full</button>
+          </div>
+          <button class="btn-copy" id="btn-copy-log" onclick="copyLogToClipboard()" title="Copy to clipboard">Copy</button>
+          <button class="modal-close" onclick="closeConvModal()">✕</button>
+        </div>
       </div>
       <div id="conv-modal-body" class="modal-body"></div>
     </div>
