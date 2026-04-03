@@ -40,6 +40,11 @@ vi.mock('../github/review-comments.js', () => ({
   fetchPendingGithubReviewComments: vi.fn().mockResolvedValue([]),
 }));
 
+// Mock compact log generator so it doesn't consume extra executeClaudeCode calls
+vi.mock('../claude/compact-log-generator.js', () => ({
+  generateCompactLog: vi.fn().mockResolvedValue('Compact summary'),
+}));
+
 const testConfig: ServerConfig = {
   claude: { maxBudgetUsd: 2.0 },
   pipeline: { concurrency: 1 },
