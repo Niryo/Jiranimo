@@ -6,7 +6,6 @@
     "build": "node scripts/build-icons.mjs"
   },
   "dependencies": {
-    "@jiranimo/assets": "*",
-    "@resvg/resvg-js": "^2.6.2"
+    "@jiranimo/assets": "*"
   }
 }
