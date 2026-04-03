@@ -31,17 +31,9 @@ async function main() {
   const extensionReloadEnabled = startExtensionWatcher(wsHandler, logger.child('extension'));
 
   server.listen(config.web.port, config.web.host, () => {
-    logger.info('Server listening', {
-      url: `http://${config.web.host}:${config.web.port}`,
-      dashboardUrl: `http://${config.web.host}:${config.web.port}`,
-      mcpUrl: `http://${config.web.host}:${config.web.port}/mcp`,
-      targetPath,
-      targetMode: repoTarget.kind === 'single-repo' ? 'single-repo' : 'repo-root',
-      statePath: config.statePath ?? 'default (~/.jiranimo/state.json)',
-      logsDir: config.logsDir ?? 'default (~/.jiranimo/logs)',
-      extensionAutoReload: extensionReloadEnabled,
-      serverEpoch: meta.serverEpoch,
-    });
+    const addr = `http://${config.web.host}:${config.web.port}`;
+    const mode = repoTarget.kind === 'single-repo' ? `single repo: ${repoTarget.repoPath}` : `repo root: ${targetPath}`;
+    logger.info(`Server listening at ${addr} (${mode})`);
   });
 
   let shuttingDown = false;

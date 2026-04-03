@@ -144,6 +144,8 @@ export class PipelineManager extends EventEmitter {
     const persisted = this.store.upsertTask(task);
     this.store.enqueueTask(task.key);
     this.store.flushSync();
+    const verb = task.taskMode === 'screenshot' ? 'screenshot' : task.taskMode === 'fix-comments' ? 'fix comments for' : 'implement';
+    this.logger.info(`Received task to ${verb}: "${task.summary}" (${task.key})`);
     this.emit('task-created', persisted);
     this.emitSyncNeeded();
     setImmediate(() => this.processQueue());
@@ -618,14 +620,9 @@ export class PipelineManager extends EventEmitter {
     mkdirSync(workspacePath, { recursive: true });
 
     this.activeCount++;
-    const concurrencyLabel = this.config.pipeline.concurrency === 0 ? 'unlimited' : String(this.config.pipeline.concurrency);
     const taskLogger = this.logger.child(key);
-    taskLogger.info('Task started', {
-      summary: task.summary,
-      activeCount: this.activeCount,
-      concurrency: concurrencyLabel,
-      resumed: wasInterrupted,
-    });
+    const resumeLabel = wasInterrupted ? ' (resuming)' : '';
+    taskLogger.info(`Task started: "${task.summary}"${resumeLabel}`);
 
     const started = this.transitionTask(key, 'start', {
       startedAt: new Date().toISOString(),
@@ -651,6 +648,12 @@ export class PipelineManager extends EventEmitter {
     let capturedSessionId: string | undefined;
 
     try {
+      const needsRepoPick = !started.repoPath && this.repoTarget.kind !== 'single-repo';
+      const needsTaskMode = started.taskMode == null;
+
+      if (needsRepoPick) taskLogger.info('Choosing repository to operate on...');
+      if (needsTaskMode) taskLogger.info('Classifying task type...');
+
       const [repoPath, taskMode] = await Promise.all([
         started.repoPath
           ? Promise.resolve(started.repoPath)
@@ -661,6 +664,9 @@ export class PipelineManager extends EventEmitter {
           ? Promise.resolve(started.taskMode)
           : resolveTaskMode({ ...started, comments: started.comments ?? [] }),
       ]);
+
+      if (needsRepoPick) taskLogger.info(`Repository selected: ${repoPath}`);
+      if (needsTaskMode) taskLogger.info(`Task mode: ${taskMode}`);
 
       this.store.patchTask(key, { repoPath, taskMode, logPath });
       this.store.flushSync();
@@ -690,6 +696,8 @@ export class PipelineManager extends EventEmitter {
           : undefined,
       );
 
+      taskLogger.info('Starting Claude Code...');
+
       let sessionLogged = false;
       const result: ExecutionResult = await executeClaudeCode({
         prompt,
@@ -709,14 +717,23 @@ export class PipelineManager extends EventEmitter {
           if (event.type === 'init' && event.sessionId && !sessionLogged) {
             sessionLogged = true;
             capturedSessionId = event.sessionId;
-            taskLogger.info('Claude session started', { sessionId: event.sessionId });
+            taskLogger.info(`Claude session ready (${event.sessionId})`);
           } else if (event.type === 'result') {
-            taskLogger.info('Claude result received', {
-              success: !event.isError,
-              summary: event.text?.slice(0, 200) || '',
-            });
-          } else if (event.text) {
-            taskLogger.debug('Claude message', { text: event.text });
+            const costLabel = typeof event.costUsd === 'number' ? ` ($${event.costUsd.toFixed(2)})` : '';
+            if (event.isError) {
+              taskLogger.info(`Claude finished with error${costLabel}: ${event.text?.slice(0, 200) || ''}`);
+            } else {
+              taskLogger.info(`Claude finished successfully${costLabel}`);
+            }
+          } else if (event.type === 'message') {
+            if (event.text) {
+              taskLogger.info(`Claude: ${event.text.slice(0, 300)}`);
+            }
+            if (event.toolUse) {
+              for (const tool of event.toolUse) {
+                taskLogger.info(`Claude action: ${tool.name}${summarizeToolInput(tool.name, tool.input)}`);
+              }
+            }
           }
         },
         onOutput: (raw: string) => {
@@ -787,10 +804,10 @@ export class PipelineManager extends EventEmitter {
         });
       }
 
-      taskLogger.info('Task completed', { logPath });
+      taskLogger.info('Task completed');
     } catch (err) {
       writeFileSync(logPath, logLines.join('\n'), 'utf-8');
-      taskLogger.error('Task failed', { error: (err as Error).message, logPath });
+      taskLogger.error(`Task failed: ${(err as Error).message}`);
 
       let compactLog: string | undefined;
       if (capturedSessionId) {
@@ -820,4 +837,17 @@ export class PipelineManager extends EventEmitter {
       this.processQueue();
     }
   }
+}
+
+function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
+  const filePath = (input.file_path ?? input.path ?? '') as string;
+  const command = (input.command ?? '') as string;
+  const pattern = (input.pattern ?? '') as string;
+  const query = (input.query ?? '') as string;
+
+  if (filePath) return `(${filePath})`;
+  if (command) return `(${String(command).slice(0, 80)})`;
+  if (pattern) return `(${pattern})`;
+  if (query) return `(${String(query).slice(0, 80)})`;
+  return '';
 }

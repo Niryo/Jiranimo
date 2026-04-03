@@ -295,7 +295,7 @@ describe('PipelineManager', () => {
 
     const sessionLogs = consoleSpy.mock.calls
       .map(args => args[0] as string)
-      .filter(msg => typeof msg === 'string' && msg.includes('Claude session started') && msg.includes('sess-abc'));
+      .filter(msg => typeof msg === 'string' && msg.includes('Claude session ready') && msg.includes('sess-abc'));
 
     expect(sessionLogs).toHaveLength(1);
     consoleSpy.mockRestore();

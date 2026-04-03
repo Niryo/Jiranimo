@@ -32,10 +32,16 @@ export interface ExecutionResult {
 
 export type ClaudeEventType = 'init' | 'message' | 'result';
 
+export interface ClaudeToolUse {
+  name: string;
+  input: Record<string, unknown>;
+}
+
 export interface ClaudeEvent {
   type: ClaudeEventType;
   raw: Record<string, unknown>;
   text?: string;
+  toolUse?: ClaudeToolUse[];
   isError?: boolean;
   costUsd?: number;
   sessionId?: string;

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { ClaudeEvent } from './types.js';
+import type { ClaudeEvent, ClaudeToolUse } from './types.js';
 
 export class OutputParser extends EventEmitter {
   private buffer = '';
@@ -55,13 +55,23 @@ export class OutputParser extends EventEmitter {
       const message = raw.message as Record<string, unknown> | undefined;
       const content = message?.content;
       let text: string | undefined;
+      let toolUse: ClaudeToolUse[] | undefined;
       if (Array.isArray(content)) {
-        text = content
+        const texts = content
           .filter((c: Record<string, unknown>) => c.type === 'text')
-          .map((c: Record<string, unknown>) => c.text)
-          .join('');
+          .map((c: Record<string, unknown>) => c.text as string)
+          .filter(Boolean);
+        if (texts.length) text = texts.join('');
+
+        const tools = content.filter((c: Record<string, unknown>) => c.type === 'tool_use');
+        if (tools.length) {
+          toolUse = tools.map((c: Record<string, unknown>) => ({
+            name: c.name as string,
+            input: (c.input ?? {}) as Record<string, unknown>,
+          }));
+        }
       }
-      return { type: 'message', raw, text };
+      return { type: 'message', raw, text, toolUse };
     }
 
     if (type === 'result') {
