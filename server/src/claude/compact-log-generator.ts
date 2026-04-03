@@ -77,11 +77,12 @@ function extractReadableContent(logContent: string): string {
           if (block.type === 'text' && block.text) {
             parts.push(`[Claude] ${block.text}`);
           } else if (block.type === 'tool_use') {
-            if (isRoutineToolAction(block.name, block.input)) {
+            const toolName = block.name ?? 'unknown';
+            if (isRoutineToolAction(toolName, block.input)) {
               continue;
             }
             const inputLabel = summarizeToolInput(block.input);
-            parts.push(`[Tool] ${block.name}${inputLabel ? `(${inputLabel})` : ''}`);
+            parts.push(`[Tool] ${toolName}${inputLabel ? `(${inputLabel})` : ''}`);
           }
         }
         break;

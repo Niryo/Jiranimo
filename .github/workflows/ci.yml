@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - master
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Linux rolldown binding
+        run: npm install --no-save --ignore-scripts @rolldown/binding-linux-x64-gnu@1.0.0-rc.9
+
+      - name: Run server tests
+        run: npm run test:server
+
+      - name: Run extension tests
+        run: npm run test:extension
+
+      - name: Build production server bundle
+        run: npm run build:server
+
+      - name: Build production extension package
+        run: npm run build:extension
+
+      - name: Package release artifacts
+        run: npm run package:release
+
+      - name: Verify npm publish dry run
+        run: |
+          VERSION="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version)")"
+          npm publish --dry-run --access public ".artifacts/release/jiranimo-${VERSION}.tgz"
