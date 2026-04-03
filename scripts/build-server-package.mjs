@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync, cpSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,11 +30,6 @@ await build({
   banner: {
     js: '#!/usr/bin/env node\nimport { createRequire as __createRequire } from "node:module";\nconst require = __createRequire(import.meta.url);',
   },
-});
-
-execFileSync('npx', ['tsc', '--project', 'server/tsconfig.types.json'], {
-  cwd: rootDir,
-  stdio: 'inherit',
 });
 
 for (const relativePath of ['index.html', 'style.css', 'app.js', 'logo-mark.svg']) {

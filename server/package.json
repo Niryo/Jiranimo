@@ -4,7 +4,6 @@
   "type": "module",
   "description": "Local automation server for the Jiranimo Jira extension",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "bin": {
     "jiranimo": "./dist/index.js"
   },
