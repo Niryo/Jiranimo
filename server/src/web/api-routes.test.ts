@@ -21,6 +21,9 @@ vi.mock('../mcp/server.js', () => ({
   writeMcpConfig: vi.fn(),
   deleteMcpConfig: vi.fn(),
 }));
+vi.mock('../github/review-comments.js', () => ({
+  fetchPendingGithubReviewComments: vi.fn().mockResolvedValue([]),
+}));
 
 const testConfig: ServerConfig = {
   claude: { maxBudgetUsd: 2.0 },
@@ -192,6 +195,51 @@ describe('POST /api/tasks/:key/retry', () => {
 
     const res = await request(app).post('/api/tasks/PROJ-1/retry');
     expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/tasks/:key/fix-comments', () => {
+  it('returns 404 for unknown key', async () => {
+    const res = await request(app).post('/api/tasks/NOPE-1/fix-comments');
+    expect(res.status).toBe(404);
+  });
+
+  it('queues a completed PR task for GitHub comment fixing', async () => {
+    const { fetchPendingGithubReviewComments } = await import('../github/review-comments.js');
+    store.upsertTask({
+      key: 'PROJ-REVIEW',
+      summary: 'Needs review fixes',
+      description: 'Needs review fixes',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-REVIEW',
+      status: 'completed',
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prNumber: 42,
+      branchName: 'jiranimo/PROJ-REVIEW-feature',
+      trackedBoards: ['test.atlassian.net:board-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    vi.mocked(fetchPendingGithubReviewComments).mockResolvedValueOnce([{
+      id: 101,
+      fingerprint: 'conversation:101:2026-04-03T10:00:00Z',
+      kind: 'conversation',
+      author: 'reviewer',
+      body: 'Please rename this helper',
+    }]);
+
+    const res = await request(app).post('/api/tasks/PROJ-REVIEW/fix-comments');
+
+    expect(res.status).toBe(200);
+    expect(res.body.pendingComments).toBe(1);
+    expect(res.body.task.key).toBe('PROJ-REVIEW');
+    expect(res.body.task.taskMode).toBe('fix-comments');
+    expect(res.body.task.pendingGithubCommentFingerprints).toEqual(['conversation:101:2026-04-03T10:00:00Z']);
   });
 });
 

@@ -122,6 +122,43 @@ describe('StateStore', () => {
     store2.destroy();
   });
 
+  it('normalizes persisted GitHub review comment tracking fields on load', () => {
+    const store1 = new StateStore({ filePath: statePath, flushDelayMs: 0 });
+    store1.upsertTask(makeTask({
+      key: 'PROJ-GH',
+      githubReviewComments: [{
+        id: 101,
+        fingerprint: 'review:101:2026-04-03T10:00:00Z',
+        kind: 'review',
+        author: 'reviewer',
+        body: 'Please rename this helper',
+      }],
+      fixedGithubCommentFingerprints: ['review:101:2026-04-03T10:00:00Z', 'review:101:2026-04-03T10:00:00Z'],
+      pendingGithubCommentFingerprints: ['conversation:102:2026-04-03T10:05:00Z'],
+    }));
+    store1.flushSync();
+    store1.destroy();
+
+    const store2 = new StateStore({ filePath: statePath, flushDelayMs: 0 });
+    const task = store2.getTask('PROJ-GH');
+
+    expect(task?.githubReviewComments).toEqual([{
+      id: 101,
+      fingerprint: 'review:101:2026-04-03T10:00:00Z',
+      kind: 'review',
+      author: 'reviewer',
+      body: 'Please rename this helper',
+      path: undefined,
+      line: undefined,
+      url: undefined,
+      created: undefined,
+      updated: undefined,
+    }]);
+    expect(task?.fixedGithubCommentFingerprints).toEqual(['review:101:2026-04-03T10:00:00Z']);
+    expect(task?.pendingGithubCommentFingerprints).toEqual(['conversation:102:2026-04-03T10:05:00Z']);
+    store2.destroy();
+  });
+
   it('handles corrupted state file gracefully', async () => {
     const { writeFileSync } = await import('node:fs');
     writeFileSync(statePath, 'not valid json!!!');

@@ -16,6 +16,7 @@ import { pickRepo } from '../repo-picker.js';
 import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
 import type { RepoTarget } from '../runtime-target.js';
 import { createLogger, isSuppressedChildProcessLogLine, resolveLoggingConfig, type Logger } from '../logging/logger.js';
+import { fetchPendingGithubReviewComments } from '../github/review-comments.js';
 
 const RESUME_GRACE_MS = 15_000;
 const EFFECT_CLAIM_LEASE_MS = 30_000;
@@ -114,12 +115,16 @@ export class PipelineManager extends EventEmitter {
       parentKey: input.parentKey,
       jiraUrl: input.jiraUrl,
       status: 'queued',
+      repoPath: existing?.repoPath,
       ...(isScreenshotRetry && {
         taskMode: 'screenshot' as const,
         prUrl: existing!.prUrl,
         prNumber: existing!.prNumber,
         branchName: existing!.branchName,
       }),
+      githubReviewComments: [],
+      pendingGithubCommentFingerprints: [],
+      fixedGithubCommentFingerprints: existing?.fixedGithubCommentFingerprints ?? [],
       ...(existing?.taskMode === 'plan' && {
         previousTaskMode: existing.taskMode,
         planContent: existing.planContent,
@@ -142,6 +147,47 @@ export class PipelineManager extends EventEmitter {
     this.emitSyncNeeded();
     setImmediate(() => this.processQueue());
     return persisted;
+  }
+
+  async fixGithubComments(key: string): Promise<{ task: TaskRecord; pendingComments: number }> {
+    const task = this.store.getTask(key);
+    if (!task) throw new Error(`Task ${key} not found`);
+    if (task.status !== 'completed' && task.status !== 'failed') {
+      throw new Error(`Task ${key} must be completed or failed before fixing comments`);
+    }
+    if (!task.prUrl || !task.prNumber || !task.branchName) {
+      throw new Error(`Task ${key} does not have an existing PR to update`);
+    }
+
+    const githubReviewComments = await fetchPendingGithubReviewComments(
+      task.prUrl,
+      task.fixedGithubCommentFingerprints ?? [],
+    );
+
+    if (githubReviewComments.length === 0) {
+      throw new Error(`Task ${key} has no new GitHub review comments to fix`);
+    }
+
+    const updated = this.store.updateTaskStatus(key, 'queued', {
+      taskMode: 'fix-comments',
+      githubReviewComments,
+      pendingGithubCommentFingerprints: githubReviewComments.map(comment => comment.fingerprint),
+      errorMessage: undefined,
+      recoveryState: 'none',
+      resumeAfter: undefined,
+      resumeMode: undefined,
+      resumeReason: undefined,
+      completedAt: undefined,
+      activePid: undefined,
+      screenshotFailed: undefined,
+      screenshotFailReason: undefined,
+    });
+    this.store.enqueueTask(key);
+    this.store.flushSync();
+    this.emitSyncNeeded();
+    setImmediate(() => this.processQueue());
+
+    return { task: updated, pendingComments: githubReviewComments.length };
   }
 
   syncBoardPresence(input: {
@@ -401,7 +447,22 @@ export class PipelineManager extends EventEmitter {
     if (!task) return undefined;
     const oldStatus = task.status;
     const newStatus = transition(task.status, action);
-    const updated = this.store.updateTaskStatus(key, newStatus, extra);
+    const nextExtra: Partial<TaskRecord> = { ...extra };
+
+    if (action === 'complete' && (task.pendingGithubCommentFingerprints?.length ?? 0) > 0) {
+      nextExtra.fixedGithubCommentFingerprints = [...new Set([
+        ...(task.fixedGithubCommentFingerprints ?? []),
+        ...(task.pendingGithubCommentFingerprints ?? []),
+      ])];
+      nextExtra.pendingGithubCommentFingerprints = [];
+      nextExtra.githubReviewComments = [];
+    }
+
+    if (action === 'fail' && (task.pendingGithubCommentFingerprints?.length ?? 0) > 0) {
+      nextExtra.pendingGithubCommentFingerprints = [];
+    }
+
+    const updated = this.store.updateTaskStatus(key, newStatus, nextExtra);
 
     if (newStatus === 'in-progress') {
       this.createPipelineStatusEffect(updated, 'in-progress');
@@ -487,7 +548,11 @@ export class PipelineManager extends EventEmitter {
 
   private buildCompletionComment(task: TaskRecord): string {
     const parts: string[] = [];
-    if (task.prUrl) parts.push(`Draft PR: ${task.prUrl}`);
+    if (task.prUrl) {
+      parts.push(task.taskMode === 'fix-comments' || task.taskMode === 'screenshot'
+        ? `Updated PR: ${task.prUrl}`
+        : `Draft PR: ${task.prUrl}`);
+    }
 
     if (task.claudeResultText) {
       const text = task.claudeResultText.trim();
@@ -584,21 +649,23 @@ export class PipelineManager extends EventEmitter {
 
     try {
       const [repoPath, taskMode] = await Promise.all([
-        this.repoTarget.kind === 'single-repo'
-          ? Promise.resolve(this.repoTarget.repoPath)
-          : pickRepo(this.repoTarget.reposRoot, started),
+        started.repoPath
+          ? Promise.resolve(started.repoPath)
+          : (this.repoTarget.kind === 'single-repo'
+            ? Promise.resolve(this.repoTarget.repoPath)
+            : pickRepo(this.repoTarget.reposRoot, started)),
         started.taskMode != null
           ? Promise.resolve(started.taskMode)
           : resolveTaskMode({ ...started, comments: started.comments ?? [] }),
       ]);
 
-      this.store.patchTask(key, { taskMode, logPath });
+      this.store.patchTask(key, { repoPath, taskMode, logPath });
       this.store.flushSync();
       this.emitSyncNeeded();
 
       writeMcpConfig(workspacePath, this.config.web.port);
 
-      const screenshotContext = taskMode === 'screenshot' && started.prUrl && started.branchName
+      const existingPrContext = (taskMode === 'screenshot' || taskMode === 'fix-comments') && started.prUrl && started.branchName
         ? { prUrl: started.prUrl, prNumber: started.prNumber!, branchName: started.branchName }
         : undefined;
       const prompt = buildPrompt(
@@ -606,7 +673,7 @@ export class PipelineManager extends EventEmitter {
         this.config,
         repoPath,
         taskMode,
-        screenshotContext,
+        existingPrContext,
         wasInterrupted
           ? {
               wasInterrupted: true,

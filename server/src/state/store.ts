@@ -39,10 +39,39 @@ function normalizeStringArray(value: unknown): string[] {
   return [...new Set(value.filter((item): item is string => typeof item === 'string' && item.length > 0))];
 }
 
+function normalizeGithubReviewComments(value: unknown): TaskRecord['githubReviewComments'] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is NonNullable<TaskRecord['githubReviewComments']>[number] =>
+      !!item
+      && typeof item === 'object'
+      && typeof (item as { id?: unknown }).id === 'number'
+      && typeof (item as { fingerprint?: unknown }).fingerprint === 'string'
+      && ((item as { kind?: unknown }).kind === 'review' || (item as { kind?: unknown }).kind === 'conversation')
+      && typeof (item as { author?: unknown }).author === 'string'
+      && typeof (item as { body?: unknown }).body === 'string',
+    )
+    .map(item => ({
+      id: item.id,
+      fingerprint: item.fingerprint,
+      kind: item.kind,
+      author: item.author,
+      body: item.body,
+      path: typeof item.path === 'string' ? item.path : undefined,
+      line: typeof item.line === 'number' ? item.line : undefined,
+      url: typeof item.url === 'string' ? item.url : undefined,
+      created: typeof item.created === 'string' ? item.created : undefined,
+      updated: typeof item.updated === 'string' ? item.updated : undefined,
+    }));
+}
+
 function normalizeTask(task: TaskRecord): TaskRecord {
   return {
     ...task,
     trackedBoards: normalizeStringArray(task.trackedBoards),
+    fixedGithubCommentFingerprints: normalizeStringArray(task.fixedGithubCommentFingerprints),
+    pendingGithubCommentFingerprints: normalizeStringArray(task.pendingGithubCommentFingerprints),
+    githubReviewComments: normalizeGithubReviewComments(task.githubReviewComments),
   };
 }
 

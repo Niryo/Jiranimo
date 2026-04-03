@@ -134,6 +134,10 @@ section h2 {
   margin-top: 8px;
 }
 
+.btn + .btn {
+  margin-left: 8px;
+}
+
 .btn:hover { background: #30363d; }
 
 /* ── Conversation Log Modal ─────────────────────────────── */

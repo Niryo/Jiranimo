@@ -1,5 +1,5 @@
 import type { ServerConfig } from '../config/types.js';
-import type { TaskMode } from '../state/types.js';
+import type { GithubReviewCommentRecord, TaskMode } from '../state/types.js';
 
 interface PromptTask {
   key: string;
@@ -10,6 +10,7 @@ interface PromptTask {
   issueType: string;
   labels: string[];
   comments: Array<{ author: string; body: string; created?: string }>;
+  githubReviewComments?: GithubReviewCommentRecord[];
   subtasks?: Array<{ key: string; summary: string; status: string }>;
   linkedIssues?: Array<{ type: string; key: string; summary: string; status: string }>;
   attachments?: Array<{ filename: string; mimeType: string; url: string }>;
@@ -38,6 +39,7 @@ function toPromptContext(task: PromptTask): Record<string, unknown> {
   if (task.labels?.length) ctx.labels = task.labels;
   if (task.components?.length) ctx.components = task.components;
   if (task.comments?.length) ctx.comments = task.comments;
+  if (task.githubReviewComments?.length) ctx.githubReviewComments = task.githubReviewComments;
   if (task.subtasks?.length) ctx.subtasks = task.subtasks;
   if (task.linkedIssues?.length) ctx.linkedIssues = task.linkedIssues;
   if (task.attachments?.length) ctx.attachments = task.attachments;
@@ -146,6 +148,58 @@ data:image/png;base64,\${SCREENSHOT_B64}"
 **Step 4 - Report back**:
 - \`jiranimo_complete\` — once the screenshot is posted (task_key="${task.key}")
 - \`jiranimo_fail\` — only if you truly cannot take the screenshot (task_key="${task.key}")
+
+**Clean up the worktree**:
+\`\`\`
+git -C ${repoPath} worktree remove ${worktreePath}
+\`\`\`${appendSection}`;
+  }
+
+  if (mode === 'fix-comments' && screenshotContext) {
+    const { prUrl, prNumber, branchName } = screenshotContext;
+    return `You are updating an existing PR to address new GitHub PR comments. Do not create a new branch or a new PR.
+
+## Task
+\`\`\`json
+${taskJson}
+\`\`\`${recoverySection}
+${existingPlanSection}
+
+### Context
+- Branch: \`${branchName}\`
+- PR: ${prUrl}
+
+The task JSON may include \`githubReviewComments\`. Those are the new GitHub PR comments that have not been fixed yet, including both inline code review comments and general PR conversation comments. Address every one of them in this run.
+
+**Step 1 - Check out the existing branch**:
+\`\`\`bash
+if [ ! -d "${worktreePath}" ]; then
+  git -C ${repoPath} worktree add ${worktreePath} ${branchName}
+fi
+cd ${worktreePath}
+\`\`\`
+
+**Step 2 - Review the PR feedback and implement the fixes**:
+- Use the \`githubReviewComments\` entries in the task JSON as your source of truth for what needs fixing
+- Inspect the current PR state with \`gh pr view ${prNumber} --comments\`
+- Make the smallest correct set of code and test changes needed to address the comments
+- Keep the existing branch and PR; do not open a replacement PR
+
+**Step 3 - Run verification**:
+- Run the relevant tests for the changed area
+- If there are no focused tests, run the smallest meaningful validation you can explain clearly
+
+**Step 4 - Commit and push to the existing branch**:
+\`\`\`bash
+git add -A
+git commit -m "fix(${task.key}): address PR review comments"
+git push -u ${pushRemote} ${branchName}
+\`\`\`
+
+**Step 5 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
+- \`jiranimo_progress\` — send progress updates as you work (task_key="${task.key}")
+- \`jiranimo_complete\` — when the PR branch is updated (task_key="${task.key}")
+- \`jiranimo_fail\` — if you hit an unrecoverable error (task_key="${task.key}")
 
 **Clean up the worktree**:
 \`\`\`

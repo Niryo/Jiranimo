@@ -102,6 +102,11 @@ function taskCard(task) {
     extra += `<button class="btn btn-log" onclick="openConvLog('${task.key}', '${escapeHtml(task.key)} — ${escapeHtml(task.summary).replace(/'/g, '&#39;').replace(/"/g, '&quot;')}')">View Log</button>`;
   }
 
+  const canFixComments = task.prUrl && (task.status === 'completed' || task.status === 'failed');
+  if (canFixComments) {
+    extra += `<button class="btn" onclick="fixComments('${task.key}')">Fix comments</button>`;
+  }
+
   return `
     <div class="task-card status-${task.status}">
       <div class="task-key">${escapeHtml(task.key)}</div>
@@ -223,6 +228,26 @@ async function retryTask(key) {
     await fetch(`${API_BASE}/api/tasks/${key}/retry`, { method: 'POST' });
   } catch (err) {
     console.error('Failed to retry task:', err);
+  }
+}
+
+async function fixComments(key) {
+  try {
+    const res = await fetch(`${API_BASE}/api/tasks/${key}/fix-comments`, { method: 'POST' });
+    if (!res.ok) {
+      let message = `Failed to fix comments: ${res.status}`;
+      try {
+        const data = await res.json();
+        if (data?.error) message = data.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(message);
+    }
+    await fetchSync();
+  } catch (err) {
+    console.error('Failed to fix comments:', err);
+    alert(err.message || 'Failed to fix comments');
   }
 }
 

@@ -130,6 +130,28 @@ describe('buildPrompt', () => {
     expect(prompt).not.toContain('gh pr create');
   });
 
+  it('generates fix-comments mode prompt when mode is fix-comments', () => {
+    const ctx = { prUrl: 'https://github.com/org/repo/pull/42', prNumber: 42, branchName: 'jiranimo/PROJ-123-feature' };
+    const prompt = buildPrompt({
+      ...baseTask,
+      githubReviewComments: [{
+        id: 101,
+        fingerprint: '101:2026-04-03T10:00:00Z',
+        kind: 'review',
+        author: 'reviewer',
+        body: 'Please rename this helper',
+        path: 'src/app.ts',
+        line: 42,
+      }],
+    } as any, baseConfig, repoPath, 'fix-comments', ctx);
+    expect(prompt).toContain('existing PR');
+    expect(prompt).toContain('githubReviewComments');
+    expect(prompt).toContain('Please rename this helper');
+    expect(prompt).toContain('gh pr view 42 --comments');
+    expect(prompt).toContain('git push -u origin jiranimo/PROJ-123-feature');
+    expect(prompt).not.toContain('gh pr create');
+  });
+
   it('includes the saved plan when implementing a previously planned ticket', () => {
     const prompt = buildPrompt({
       ...baseTask,
@@ -186,6 +208,7 @@ describe('buildPrompt', () => {
     expect(prompt).not.toContain('"trackedBoards"');
     expect(prompt).not.toContain('"claudeCostUsd"');
     expect(prompt).not.toContain('"createdAt"');
+    expect(prompt).not.toContain('"repoPath"');
   });
 
   it('omits empty arrays from prompt context', () => {
@@ -204,6 +227,21 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('frontend');
     expect(prompt).toContain('"comments"');
     expect(prompt).toContain('Use existing button component');
+  });
+
+  it('includes GitHub review comments in prompt context when present', () => {
+    const prompt = buildPrompt({
+      ...baseTask,
+      githubReviewComments: [{
+        id: 101,
+        fingerprint: '101:2026-04-03T10:00:00Z',
+        kind: 'conversation',
+        author: 'reviewer',
+        body: 'Please rename this helper',
+      }],
+    } as any, baseConfig, repoPath);
+    expect(prompt).toContain('"githubReviewComments"');
+    expect(prompt).toContain('Please rename this helper');
   });
 
   it('embeds branchPrefix and defaultBaseBranch in git instructions', () => {

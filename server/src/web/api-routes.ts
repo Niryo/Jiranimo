@@ -120,6 +120,21 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
     }
   });
 
+  router.post('/tasks/:key/fix-comments', async (req: Request, res: Response) => {
+    const key = param(req.params.key);
+    try {
+      const result = await pipeline.fixGithubComments(key);
+      res.json(result);
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(400).json({ error: message });
+      }
+    }
+  });
+
   router.post('/tasks/:key/cancel-resume', (req: Request, res: Response) => {
     try {
       const task = pipeline.cancelResume(param(req.params.key));

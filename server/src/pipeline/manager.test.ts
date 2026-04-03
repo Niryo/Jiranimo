@@ -36,6 +36,10 @@ vi.mock('../claude/task-classifier.js', () => ({
   resolveTaskMode: vi.fn().mockResolvedValue('implement'),
 }));
 
+vi.mock('../github/review-comments.js', () => ({
+  fetchPendingGithubReviewComments: vi.fn().mockResolvedValue([]),
+}));
+
 const testConfig: ServerConfig = {
   claude: { maxBudgetUsd: 2.0 },
   pipeline: { concurrency: 1 },
@@ -411,6 +415,99 @@ describe('PipelineManager', () => {
       comments: [{ author: 'PM', body: "Perfect, let's do it", created: '2026-04-02T09:00:00.000Z' }],
     }));
     expect(store.getTask('PROJ-REPLAN')?.taskMode).toBe('implement');
+
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('queues a fix-comments run for completed PR tasks and marks fetched comments as fixed on success', async () => {
+    const { fetchPendingGithubReviewComments } = await import('../github/review-comments.js');
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-REVIEW',
+      summary: 'Existing PR task',
+      description: 'Existing PR task',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-REVIEW',
+      status: 'completed',
+      repoPath: '/tmp/existing-repo',
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prNumber: 42,
+      branchName: 'jiranimo/PROJ-REVIEW-feature',
+      fixedGithubCommentFingerprints: ['review:100:2026-04-02T10:00:00Z'],
+      trackedBoards: ['test.atlassian.net:board-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    vi.mocked(fetchPendingGithubReviewComments).mockResolvedValueOnce([{
+      id: 101,
+      fingerprint: 'conversation:101:2026-04-03T10:00:00Z',
+      kind: 'conversation',
+      author: 'reviewer',
+      body: 'Please rename this helper',
+      path: 'src/app.ts',
+      line: 42,
+    }]);
+
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    const result = await mgr.fixGithubComments('PROJ-REVIEW');
+
+    expect(vi.mocked(fetchPendingGithubReviewComments)).toHaveBeenCalledWith(
+      'https://github.com/org/repo/pull/42',
+      ['review:100:2026-04-02T10:00:00Z'],
+    );
+    expect(result.pendingComments).toBe(1);
+    expect(result.task.status).toBe('queued');
+    expect(result.task.taskMode).toBe('fix-comments');
+    expect(result.task.pendingGithubCommentFingerprints).toEqual(['conversation:101:2026-04-03T10:00:00Z']);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const updated = store.getTask('PROJ-REVIEW');
+    expect(updated?.status).toBe('completed');
+    expect(updated?.fixedGithubCommentFingerprints).toEqual([
+      'review:100:2026-04-02T10:00:00Z',
+      'conversation:101:2026-04-03T10:00:00Z',
+    ]);
+    expect(updated?.pendingGithubCommentFingerprints).toEqual([]);
+    expect(updated?.githubReviewComments).toEqual([]);
+
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('rejects fix-comments runs when no new GitHub review comments exist', async () => {
+    const { fetchPendingGithubReviewComments } = await import('../github/review-comments.js');
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-NO-COMMENTS',
+      summary: 'Existing PR task',
+      description: 'Existing PR task',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-NO-COMMENTS',
+      status: 'completed',
+      prUrl: 'https://github.com/org/repo/pull/99',
+      prNumber: 99,
+      branchName: 'jiranimo/PROJ-NO-COMMENTS-feature',
+      trackedBoards: ['test.atlassian.net:board-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    vi.mocked(fetchPendingGithubReviewComments).mockResolvedValueOnce([]);
+
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+
+    await expect(mgr.fixGithubComments('PROJ-NO-COMMENTS')).rejects.toThrow('no new GitHub review comments');
 
     mgr.shutdown();
     store.destroy();
