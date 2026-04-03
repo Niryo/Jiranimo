@@ -71,7 +71,7 @@ jobs:
         run: npm publish ".artifacts/release/jiranimo-${{ steps.version.outputs.value }}.tgz" --access public --provenance
 
       - name: Create release tag
-        run: git tag "v${{ steps.version.outputs.value }}"
+        run: git tag -a "v${{ steps.version.outputs.value }}" -m "v${{ steps.version.outputs.value }}"
 
       - name: Push release commit and tag
         run: git push origin HEAD:master --follow-tags
