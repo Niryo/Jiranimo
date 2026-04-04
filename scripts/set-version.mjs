@@ -19,17 +19,17 @@ function writeJson(relativePath, value) {
 
 for (const file of [
   'package.json',
-  'server/package.json',
-  'extension/package.json',
+  'packages/server/package.json',
+  'packages/extension/package.json',
   'packages/assets/package.json',
-  'extension/manifest.json',
+  'packages/extension/manifest.json',
 ]) {
   const json = readJson(file);
   json.version = nextVersion;
   writeJson(file, json);
 }
 
-const mcpServerPath = resolve(rootDir, 'server/src/mcp/server.ts');
+const mcpServerPath = resolve(rootDir, 'packages/server/src/mcp/server.ts');
 const mcpSource = readFileSync(mcpServerPath, 'utf8');
 const updatedSource = mcpSource.replace(
   /new McpServer\(\{ name: 'jiranimo', version: '[^']+' \}\)/,

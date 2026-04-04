@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { build, transform } from 'esbuild';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const serverDir = resolve(rootDir, 'server');
+const serverDir = resolve(rootDir, 'packages/server');
 const distDir = resolve(serverDir, 'dist');
 const publicSrcDir = resolve(serverDir, 'src/web/public');
 const stageDir = resolve(rootDir, '.artifacts/release/server');

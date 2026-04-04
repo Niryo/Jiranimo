@@ -25,7 +25,7 @@ rm -f "$ARTIFACT_DIR"/SHA256SUMS.txt
   zip -qr "$ARTIFACT_DIR/jiranimo-server-node24-v$VERSION.zip" .
 )
 
-npm pack --workspace=server --pack-destination "$ARTIFACT_DIR" >/dev/null
+npm pack --workspace=packages/server --pack-destination "$ARTIFACT_DIR" >/dev/null
 
 (
   cd "$ARTIFACT_DIR"

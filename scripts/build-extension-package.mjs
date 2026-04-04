@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { transform } from 'esbuild';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const extensionDir = resolve(rootDir, 'extension');
+const extensionDir = resolve(rootDir, 'packages/extension');
 const stageDir = resolve(rootDir, '.artifacts/release/extension');
 
 rmSync(stageDir, { recursive: true, force: true });
