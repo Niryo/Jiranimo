@@ -9,9 +9,9 @@ interface TaskSummary {
   description?: string;
 }
 
-function listRepos(reposRoot: string): Array<{ name: string; hint: string }> {
+function listRepos(reposRoot: string): Array<{ name: string; hint: string; readme?: string }> {
   const entries = readdirSync(reposRoot, { withFileTypes: true });
-  const repos: Array<{ name: string; hint: string }> = [];
+  const repos: Array<{ name: string; hint: string; readme?: string }> = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -30,7 +30,20 @@ function listRepos(reposRoot: string): Array<{ name: string; hint: string }> {
       }
     }
 
-    repos.push({ name: entry.name, hint });
+    let readme: string | undefined;
+    for (const readmeName of ['README.md', 'README.MD', 'readme.md', 'README']) {
+      const readmePath = join(repoPath, readmeName);
+      if (existsSync(readmePath)) {
+        try {
+          readme = readFileSync(readmePath, 'utf-8').slice(0, 2000);
+        } catch {
+          // ignore unreadable readme
+        }
+        break;
+      }
+    }
+
+    repos.push({ name: entry.name, hint, readme });
   }
 
   return repos;
@@ -47,7 +60,13 @@ export async function pickRepo(reposRoot: string, task: TaskSummary): Promise<st
     return join(reposRoot, repos[0].name);
   }
 
-  const repoList = repos.map(r => `- ${r.hint}`).join('\n');
+  const repoList = repos
+    .map(r => {
+      let entry = `- ${r.hint}`;
+      if (r.readme) entry += `\n  README:\n${r.readme.split('\n').map(l => `    ${l}`).join('\n')}`;
+      return entry;
+    })
+    .join('\n\n');
   const description = task.description ? task.description.slice(0, 500) : '';
 
   const prompt = `Given this Jira task, which repository should be modified? Respond with ONLY the repository directory name, exactly as it appears in the list below (preserve capitalization), nothing else.
@@ -61,7 +80,7 @@ ${repoList}`;
   const result = await executeClaudeCode({
     prompt,
     cwd: tmpdir(),
-    config: { model: 'claude-haiku-4-5-20251001' },
+    config: { model: 'claude-sonnet-4-6' },
   });
 
   if (!result.success || !result.resultText) {
