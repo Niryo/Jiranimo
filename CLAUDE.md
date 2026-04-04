@@ -5,17 +5,17 @@
 **Build → Test → Verify → Next.** This is non-negotiable.
 
 1. When implementing a module, write its tests immediately after (in the same session)
-2. Every `.ts` source file in `server/src/` gets a co-located `.test.ts` sibling (except `types.ts` files)
-3. Every `.js` source file in `extension/lib/` and `extension/content/` gets a `.test.js` sibling
-4. Run `cd server && npm test` after completing each module — all tests must pass before moving on
+2. Every `.ts` source file in `packages/server/src/` gets a co-located `.test.ts` sibling (except `types.ts` files)
+3. Every `.js` source file in `packages/extension/lib/` and `packages/extension/content/` gets a `.test.js` sibling
+4. Run `cd packages/server && npm test` after completing each module — all tests must pass before moving on
 5. Never move to the next implementation phase until the current phase's tests are green
 6. Use the `test` agent proactively after writing code
 7. Use the `verify` agent before committing
 
 ## Project Structure
 
-- `server/` — Node.js/TypeScript backend (Express, Claude Code executor, git/PR workflow)
-- `extension/` — Chrome extension (Manifest V3, vanilla JS)
+- `packages/server/` — Node.js/TypeScript backend (Express, Claude Code executor, git/PR workflow)
+- `packages/extension/` — Chrome extension (Manifest V3, vanilla JS)
 - Tests are co-located next to source files, not in a separate test directory (except E2E and integration tests)
 
 ## Test Tiers
@@ -36,7 +36,7 @@ Never fix a bug without adding a test. The test should specifically cover the sc
 
 ## Chrome Extension Reload
 
-After modifying ANY file in `extension/`, ALWAYS ask the user to reload the extension before testing:
+After modifying ANY file in `packages/extension/`, ALWAYS ask the user to reload the extension before testing:
 > "Reload the extension in chrome://extensions (click the reload icon on Jiranimo) before testing."
 
 Chrome does not auto-reload unpacked extensions. Without a reload, changes won't take effect.

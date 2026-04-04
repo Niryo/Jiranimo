@@ -2,8 +2,8 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SERVER_DIR="$PROJECT_ROOT/server"
-EXTENSION_DIR="$PROJECT_ROOT/extension"
+SERVER_DIR="$PROJECT_ROOT/packages/server"
+EXTENSION_DIR="$PROJECT_ROOT/packages/extension"
 
 SERVER_ONLY=""
 TARGET_INPUT=""

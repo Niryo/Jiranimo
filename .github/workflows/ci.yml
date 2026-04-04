@@ -36,6 +36,16 @@ jobs:
       - name: Run extension tests
         run: npm run test:extension
 
+      - name: Set unique validation version
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          BASE_VERSION="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version)")"
+          VALIDATION_VERSION="$(node -e "const [major, minor] = process.argv[1].split('.').map(Number); const prNumber = Number(process.env.PR_NUMBER || 0); const runAttempt = Number(process.env.GITHUB_RUN_ATTEMPT || 0); const patch = 10000 + ((prNumber % 5000) * 10) + (runAttempt % 10); process.stdout.write([major, minor, patch].join('.'));" "$BASE_VERSION")"
+          echo "Using validation version $VALIDATION_VERSION for PR packaging"
+          node scripts/set-version.mjs "$VALIDATION_VERSION"
+
       - name: Build production server bundle
         run: npm run build:server
 
