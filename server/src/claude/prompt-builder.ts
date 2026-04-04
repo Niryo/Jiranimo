@@ -372,7 +372,7 @@ If your changes are server-only, skip this step.
 If a screenshot was taken, call \`jiranimo_upload_screenshot\` with \`file_path="/tmp/jiranimo-${task.key}-screenshot.png"\`. It returns a URL — use it in the PR body as \`![Screenshot](<url>)\`.
 
 \`\`\`bash
-gh pr create ${createDraftPr ? '--draft ' : ''}--title "[${task.key}] ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}
+gh pr create ${createDraftPr ? '--draft ' : ''}--title "#${task.key} ${task.summary}" --body "Implements ${task.key}. Jira: ${task.jiraUrl}
 # append screenshot line here if upload succeeded: ![Screenshot](<url>)"
 \`\`\`
 

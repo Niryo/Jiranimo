@@ -93,6 +93,7 @@ describe('buildPrompt', () => {
   it('includes draft PR step when createDraftPr is true', () => {
     const prompt = buildPrompt(baseTask, baseConfig, repoPath);
     expect(prompt).toContain('gh pr create --draft');
+    expect(prompt).toContain('--title "#PROJ-123 Add user avatar"');
   });
 
   it('omits draft PR step when createDraftPr is false', () => {
