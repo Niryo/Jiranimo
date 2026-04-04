@@ -21,6 +21,9 @@ vi.mock('../claude/executor.js', () => ({
 }));
 vi.mock('../repo-picker.js', () => ({
   pickRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
+  listRepos: vi.fn().mockReturnValue([
+    { name: 'test-repo', hint: 'test-repo', path: '/tmp/test-repo' },
+  ]),
 }));
 vi.mock('../mcp/server.js', () => ({
   createMcpHandler: vi.fn().mockReturnValue(vi.fn()),
@@ -30,7 +33,7 @@ vi.mock('../mcp/server.js', () => ({
 
 const testConfig: ServerConfig = {
   claude: { maxBudgetUsd: 2.0 },
-  pipeline: { concurrency: 1 },
+  pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 0 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },
   web: { port: 0, host: '127.0.0.1' },
 };

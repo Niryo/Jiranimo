@@ -100,6 +100,314 @@
   let presenceSyncInFlight = false;
   /** @type {boolean} */
   let presenceSyncQueued = false;
+  /** @type {{ effectId: string; issueKey: string; detectedRepoName: string; repoOptions: Array<{ name: string; hint: string }>; canChangeRepo: boolean; expiresAt?: string; paused: boolean; expanded: boolean; isSubmitting: boolean; errorMessage: string; selectedRepoName: string; countdownTimer: number|null } | null} */
+  let activeRepoConfirmation = null;
+
+  function clearRepoConfirmationBannerTimer() {
+    if (!activeRepoConfirmation?.countdownTimer) return;
+    clearInterval(activeRepoConfirmation.countdownTimer);
+    activeRepoConfirmation.countdownTimer = null;
+  }
+
+  function dismissRepoConfirmationBanner(effectId) {
+    if (effectId && activeRepoConfirmation?.effectId !== effectId) return;
+    clearRepoConfirmationBannerTimer();
+    activeRepoConfirmation = null;
+    const banner = document.querySelector('.jiranimo-repo-banner-shell');
+    if (banner) banner.remove();
+  }
+
+  function formatRepoCountdown(expiresAt) {
+    if (!expiresAt) return 'Starting automatically soon.';
+    const remainingMs = new Date(expiresAt).getTime() - Date.now();
+    if (remainingMs <= 0) return 'Starting now...';
+    const remainingSeconds = Math.max(1, Math.ceil(remainingMs / 1000));
+    return `Starting automatically in ${remainingSeconds}s.`;
+  }
+
+  function formatRepoBannerStatus() {
+    if (!activeRepoConfirmation) return '';
+    if (activeRepoConfirmation.paused) {
+      return activeRepoConfirmation.expanded
+        ? 'Choose a repo to continue.'
+        : 'Auto-start paused while you pick a repo.';
+    }
+    return formatRepoCountdown(activeRepoConfirmation.expiresAt);
+  }
+
+  function focusRepoPicker(shell) {
+    const select = shell.querySelector('.jiranimo-repo-picker-select');
+    if (select instanceof HTMLSelectElement) {
+      setTimeout(() => select.focus(), 0);
+    }
+  }
+
+  function ensureRepoConfirmationBanner() {
+    let shell = document.querySelector('.jiranimo-repo-banner-shell');
+    if (shell) return shell;
+
+    shell = document.createElement('div');
+    shell.className = 'jiranimo-repo-banner-shell';
+    shell.innerHTML = `
+      <section class="jiranimo-repo-banner" role="status" aria-live="polite">
+        <div class="jiranimo-repo-banner-main">
+          <div class="jiranimo-repo-banner-copy">
+            <span class="jiranimo-repo-banner-kicker">Repo detected</span>
+            <span class="jiranimo-repo-banner-title"></span>
+            <span class="jiranimo-repo-countdown"></span>
+          </div>
+          <div class="jiranimo-repo-banner-actions">
+            <button type="button" class="jiranimo-repo-btn jiranimo-repo-btn-primary" data-jiranimo-repo-action="expand">Change repo</button>
+            <div class="jiranimo-repo-picker" hidden>
+              <div class="jiranimo-repo-picker-controls">
+                <select
+                  id="jiranimo-repo-picker-select"
+                  class="jiranimo-repo-picker-select"
+                ></select>
+                <button
+                  type="button"
+                  class="jiranimo-repo-icon-btn"
+                  data-jiranimo-repo-action="change"
+                  aria-label="Confirm repository"
+                  title="Confirm repository"
+                >✓</button>
+                <button type="button" class="jiranimo-repo-link" data-jiranimo-repo-action="collapse">Cancel</button>
+              </div>
+            </div>
+            <button type="button" class="jiranimo-repo-link" data-jiranimo-repo-action="cancel">Stop run</button>
+          </div>
+        </div>
+        <p class="jiranimo-repo-banner-error" hidden></p>
+      </section>
+    `;
+
+    shell.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const action = target.getAttribute('data-jiranimo-repo-action');
+      if (!action || !activeRepoConfirmation || activeRepoConfirmation.isSubmitting) return;
+
+      if (action === 'expand') {
+        void beginRepoChangeFlow(shell);
+        return;
+      }
+
+      if (action === 'collapse') {
+        activeRepoConfirmation.expanded = false;
+        activeRepoConfirmation.errorMessage = '';
+        renderRepoConfirmationBanner();
+        return;
+      }
+
+      if (action === 'cancel') {
+        void submitRepoConfirmationResponse('cancel');
+        return;
+      }
+
+      if (action === 'change') {
+        const select = shell.querySelector('.jiranimo-repo-picker-select');
+        const repoName = select instanceof HTMLSelectElement ? select.value.trim() : '';
+        void submitRepoChoice(repoName);
+      }
+    });
+
+    shell.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLSelectElement) || !activeRepoConfirmation) return;
+      if (!target.classList.contains('jiranimo-repo-picker-select')) return;
+      activeRepoConfirmation.selectedRepoName = target.value;
+    });
+
+    document.body.appendChild(shell);
+    return shell;
+  }
+
+  function renderRepoConfirmationBanner() {
+    if (!activeRepoConfirmation) {
+      dismissRepoConfirmationBanner();
+      return;
+    }
+
+    const shell = ensureRepoConfirmationBanner();
+    const title = shell.querySelector('.jiranimo-repo-banner-title');
+    const countdown = shell.querySelector('.jiranimo-repo-countdown');
+    const error = shell.querySelector('.jiranimo-repo-banner-error');
+    const picker = shell.querySelector('.jiranimo-repo-picker');
+    const select = shell.querySelector('.jiranimo-repo-picker-select');
+    const buttons = shell.querySelectorAll('button');
+    const primaryButton = shell.querySelector('[data-jiranimo-repo-action="expand"]');
+    const canChangeRepo = activeRepoConfirmation.canChangeRepo;
+
+    if (title) {
+      title.textContent = canChangeRepo
+        ? activeRepoConfirmation.detectedRepoName
+        : `Operating on the only repo found: ${activeRepoConfirmation.detectedRepoName}`;
+    }
+    if (countdown) {
+      countdown.textContent = formatRepoBannerStatus();
+    }
+    if (primaryButton instanceof HTMLButtonElement) {
+      primaryButton.hidden = activeRepoConfirmation.expanded || !canChangeRepo;
+    }
+    if (error) {
+      const hasError = Boolean(activeRepoConfirmation.errorMessage);
+      error.textContent = activeRepoConfirmation.errorMessage;
+      error.hidden = !hasError;
+    }
+    if (picker) {
+      picker.hidden = !activeRepoConfirmation.expanded || !canChangeRepo;
+    }
+    if (select instanceof HTMLSelectElement) {
+      const previousValue = activeRepoConfirmation.selectedRepoName || select.value;
+      select.innerHTML = '';
+      for (const option of activeRepoConfirmation.repoOptions) {
+        const el = document.createElement('option');
+        el.value = option.name;
+        el.textContent = option.hint || option.name;
+        select.appendChild(el);
+      }
+      select.value = activeRepoConfirmation.repoOptions.some((option) => option.name === previousValue)
+        ? previousValue
+        : activeRepoConfirmation.detectedRepoName;
+      activeRepoConfirmation.selectedRepoName = select.value;
+    }
+
+    shell.classList.toggle('is-expanded', activeRepoConfirmation.expanded);
+    shell.classList.toggle('is-busy', activeRepoConfirmation.isSubmitting);
+
+    for (const button of buttons) {
+      button.toggleAttribute('disabled', activeRepoConfirmation.isSubmitting);
+    }
+  }
+
+  function showRepoConfirmationBanner(effect) {
+    dismissRepoConfirmationBanner();
+
+    const payload = effect.payload || {};
+    const repoOptions = Array.isArray(payload.repoOptions)
+      ? payload.repoOptions
+        .filter((option) => option && typeof option.name === 'string')
+        .map((option) => ({
+          name: option.name,
+          hint: typeof option.hint === 'string' ? option.hint : option.name,
+        }))
+      : [];
+
+    activeRepoConfirmation = {
+      effectId: effect.id,
+      issueKey: typeof payload.issueKey === 'string' ? payload.issueKey : effect.taskKey,
+      detectedRepoName: typeof payload.detectedRepoName === 'string' ? payload.detectedRepoName : 'Detected repo',
+      repoOptions,
+      canChangeRepo: repoOptions.length > 1,
+      expiresAt: typeof payload.expiresAt === 'string' ? payload.expiresAt : undefined,
+      paused: payload.paused === true,
+      expanded: false,
+      isSubmitting: false,
+      errorMessage: '',
+      selectedRepoName: typeof payload.detectedRepoName === 'string'
+        ? payload.detectedRepoName
+        : (repoOptions[0]?.name || ''),
+      countdownTimer: null,
+    };
+
+    renderRepoConfirmationBanner();
+
+    if (!activeRepoConfirmation.paused) {
+      activeRepoConfirmation.countdownTimer = setInterval(() => {
+        if (!activeRepoConfirmation || activeRepoConfirmation.effectId !== effect.id) return;
+        if (activeRepoConfirmation.expiresAt && new Date(activeRepoConfirmation.expiresAt).getTime() <= Date.now()) {
+          dismissRepoConfirmationBanner(effect.id);
+          return;
+        }
+        renderRepoConfirmationBanner();
+      }, 250);
+    }
+  }
+
+  async function postRepoConfirmationResponse(action, repoName) {
+    if (!activeRepoConfirmation) {
+      throw new Error('No active repo confirmation.');
+    }
+
+    /** @type {any} */
+    const response = await serverFetch(`/api/tasks/${activeRepoConfirmation.issueKey}/repo-confirmation`, 'POST', {
+      action,
+      ...(repoName ? { repoName } : {}),
+    });
+    if (!response.ok) {
+      throw new Error(response.error || response.data?.error || `Error ${response.status}`);
+    }
+    return response.data || {};
+  }
+
+  async function beginRepoChangeFlow(shell) {
+    if (!activeRepoConfirmation) return;
+
+    if (activeRepoConfirmation.paused) {
+      activeRepoConfirmation.expanded = true;
+      activeRepoConfirmation.errorMessage = '';
+      renderRepoConfirmationBanner();
+      focusRepoPicker(shell || ensureRepoConfirmationBanner());
+      return;
+    }
+
+    activeRepoConfirmation.isSubmitting = true;
+    activeRepoConfirmation.errorMessage = '';
+    renderRepoConfirmationBanner();
+
+    try {
+      await postRepoConfirmationResponse('pause');
+      if (!activeRepoConfirmation) return;
+      clearRepoConfirmationBannerTimer();
+      activeRepoConfirmation.paused = true;
+      activeRepoConfirmation.expiresAt = undefined;
+      activeRepoConfirmation.expanded = true;
+      activeRepoConfirmation.isSubmitting = false;
+      renderRepoConfirmationBanner();
+      focusRepoPicker(shell || ensureRepoConfirmationBanner());
+    } catch (err) {
+      if (!activeRepoConfirmation) return;
+      activeRepoConfirmation.isSubmitting = false;
+      activeRepoConfirmation.errorMessage = err instanceof Error ? err.message : 'Could not update the repository choice.';
+      renderRepoConfirmationBanner();
+    }
+  }
+
+  async function submitRepoConfirmationResponse(action, repoName) {
+    if (!activeRepoConfirmation) return;
+
+    activeRepoConfirmation.isSubmitting = true;
+    activeRepoConfirmation.errorMessage = '';
+    renderRepoConfirmationBanner();
+
+    try {
+      await postRepoConfirmationResponse(action, repoName);
+      dismissRepoConfirmationBanner(activeRepoConfirmation.effectId);
+      await syncTaskStatuses();
+    } catch (err) {
+      if (!activeRepoConfirmation) return;
+      activeRepoConfirmation.isSubmitting = false;
+      activeRepoConfirmation.errorMessage = err instanceof Error ? err.message : 'Could not update the repository choice.';
+      renderRepoConfirmationBanner();
+    }
+  }
+
+  async function submitRepoChoice(repoName) {
+    if (!activeRepoConfirmation) return;
+    const normalizedRepoName = repoName.trim();
+    if (!normalizedRepoName) {
+      activeRepoConfirmation.errorMessage = 'Select a repository to continue.';
+      renderRepoConfirmationBanner();
+      return;
+    }
+
+    if (normalizedRepoName === activeRepoConfirmation.detectedRepoName) {
+      await submitRepoConfirmationResponse('confirm');
+      return;
+    }
+
+    await submitRepoConfirmationResponse('change', normalizedRepoName);
+  }
 
   async function init() {
     log('Content script loaded on', location.href);
@@ -1197,6 +1505,11 @@
   }
 
   async function processEffect(effect) {
+    if (effect.type === 'repo-confirmation') {
+      showRepoConfirmationBanner(effect);
+      return false;
+    }
+
     if (effect.type === 'pipeline-status-sync') {
       const pipelineStatus = effect.payload?.pipelineStatus;
       const issueKey = effect.payload?.issueKey;
@@ -1300,6 +1613,14 @@
       }
 
       await processPendingEffects(snapshot.pendingEffects || []);
+      const pendingRepoEffectIds = new Set(
+        (snapshot.pendingEffects || [])
+          .filter(effect => effect.type === 'repo-confirmation')
+          .map(effect => effect.id)
+      );
+      if (activeRepoConfirmation && !pendingRepoEffectIds.has(activeRepoConfirmation.effectId)) {
+        dismissRepoConfirmationBanner(activeRepoConfirmation.effectId);
+      }
       log('Synced', tasks.length, 'tasks from server snapshot', { serverEpoch, serverRevision });
     } catch {
       // Server not running

@@ -48,7 +48,7 @@ function makeConfig(reposRoot: string): ServerConfig {
       maxBudgetUsd: 1.0,
       command: FAKE_CLAUDE,
     },
-    pipeline: { concurrency: 1 },
+    pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 0 },
     git: {
       branchPrefix: 'jiranimo/',
       defaultBaseBranch: 'main',

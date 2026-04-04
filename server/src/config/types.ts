@@ -9,6 +9,7 @@ export interface ClaudeConfig {
 
 export interface PipelineConfig {
   concurrency: number;
+  repoConfirmationTimeoutMs?: number;
 }
 
 export interface GitConfig {

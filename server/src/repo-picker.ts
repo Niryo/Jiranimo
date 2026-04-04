@@ -9,9 +9,16 @@ interface TaskSummary {
   description?: string;
 }
 
-function listRepos(reposRoot: string): Array<{ name: string; hint: string; readme?: string }> {
+export interface RepoCandidate {
+  name: string;
+  hint: string;
+  path: string;
+  readme?: string;
+}
+
+export function listRepos(reposRoot: string): RepoCandidate[] {
   const entries = readdirSync(reposRoot, { withFileTypes: true });
-  const repos: Array<{ name: string; hint: string; readme?: string }> = [];
+  const repos: RepoCandidate[] = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -43,10 +50,14 @@ function listRepos(reposRoot: string): Array<{ name: string; hint: string; readm
       }
     }
 
-    repos.push({ name: entry.name, hint, readme });
+    repos.push({ name: entry.name, hint, path: repoPath, readme });
   }
 
   return repos;
+}
+
+function normalizeRepoName(rawName: string): string {
+  return rawName.replace(/^[-\s]+/, '').split(/[\s/]/)[0];
 }
 
 export async function pickRepo(reposRoot: string, task: TaskSummary): Promise<string> {
@@ -57,7 +68,7 @@ export async function pickRepo(reposRoot: string, task: TaskSummary): Promise<st
   }
 
   if (repos.length === 1) {
-    return join(reposRoot, repos[0].name);
+    return repos[0].path;
   }
 
   const repoList = repos
@@ -88,8 +99,7 @@ ${repoList}`;
   }
 
   const rawName = result.resultText.trim();
-  // Strip any path separators or leading dashes Claude might include
-  const repoName = rawName.replace(/^[-\s]+/, '').split(/[\s/]/)[0];
+  const repoName = normalizeRepoName(rawName);
 
   const matched = repos.find(r => r.name === repoName);
   if (!matched) {
@@ -98,5 +108,5 @@ ${repoList}`;
     );
   }
 
-  return join(reposRoot, matched.name);
+  return matched.path;
 }

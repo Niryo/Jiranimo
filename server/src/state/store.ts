@@ -300,6 +300,18 @@ export class StateStore {
     return { ...record };
   }
 
+  patchEffect(id: string, patch: Partial<Omit<EffectRecord, 'id' | 'createdAt'>>): EffectRecord | undefined {
+    let updated: EffectRecord | undefined;
+    this.mutate(() => {
+      const effect = this.state.effects[id];
+      if (!effect) return;
+      Object.assign(effect, patch);
+      effect.updatedAt = new Date().toISOString();
+      updated = { ...effect };
+    });
+    return updated;
+  }
+
   getEffect(id: string): EffectRecord | undefined {
     const effect = this.state.effects[id];
     return effect ? { ...effect } : undefined;

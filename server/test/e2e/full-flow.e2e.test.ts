@@ -75,7 +75,7 @@ async function startJiranimoServer(
 
   const config: ServerConfig = {
     claude: { maxBudgetUsd: 2.0 },
-    pipeline: { concurrency: 1 },
+    pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 0 },
     git: {
       branchPrefix: 'jiranimo/',
       defaultBaseBranch: 'main',

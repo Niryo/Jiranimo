@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
@@ -12,7 +12,7 @@ import { transition } from './state-machine.js';
 import { buildPrompt, planFilePath } from '../claude/prompt-builder.js';
 import { resolveTaskMode } from '../claude/task-classifier.js';
 import { executeClaudeCode } from '../claude/executor.js';
-import { pickRepo } from '../repo-picker.js';
+import { listRepos, pickRepo, type RepoCandidate } from '../repo-picker.js';
 import { writeMcpConfig, deleteMcpConfig } from '../mcp/server.js';
 import type { RepoTarget } from '../runtime-target.js';
 import { createLogger, isSuppressedChildProcessLogLine, resolveLoggingConfig, type Logger } from '../logging/logger.js';
@@ -21,7 +21,27 @@ import { generateCompactLog } from '../claude/compact-log-generator.js';
 
 const RESUME_GRACE_MS = 15_000;
 const EFFECT_CLAIM_LEASE_MS = 30_000;
+const DEFAULT_REPO_CONFIRMATION_TIMEOUT_MS = 10_000;
 const WORKSPACE_ROOT = resolve(tmpdir(), 'jiranimo-workspaces');
+
+type RepoConfirmationResolution =
+  | {
+      kind: 'confirmed';
+      repoPath: string;
+      repoName: string;
+      source: 'user-confirmed' | 'user-changed' | 'timeout';
+    }
+  | { kind: 'cancelled' };
+
+interface PendingRepoConfirmation {
+  effectId: string;
+  detectedRepoPath: string;
+  detectedRepoName: string;
+  repoOptions: RepoCandidate[];
+  timeout?: ReturnType<typeof setTimeout>;
+  paused: boolean;
+  resolve: (resolution: RepoConfirmationResolution) => void;
+}
 
 function jiraHostFromUrl(jiraUrl: string): string {
   try {
@@ -51,6 +71,7 @@ export class PipelineManager extends EventEmitter {
   private processing = false;
   private activeChildren = new Map<string, ChildProcess>();
   private resumeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private pendingRepoConfirmations = new Map<string, PendingRepoConfirmation>();
   private logger: Logger;
   private loggingConfig: ReturnType<typeof resolveLoggingConfig>;
 
@@ -61,6 +82,7 @@ export class PipelineManager extends EventEmitter {
     this.repoTarget = repoTarget;
     this.logger = createLogger(config, 'pipeline');
     this.loggingConfig = resolveLoggingConfig(config);
+    this.clearStaleRepoConfirmationEffects();
     this.recoverOnStartup();
     setImmediate(() => this.processQueue());
   }
@@ -269,6 +291,7 @@ export class PipelineManager extends EventEmitter {
   }
 
   deleteTask(key: string): boolean {
+    this.clearPendingRepoConfirmation(key, { kind: 'cancelled' });
     this.clearResumeTimer(key);
     const deleted = this.store.deleteTask(key);
     if (deleted) {
@@ -334,6 +357,11 @@ export class PipelineManager extends EventEmitter {
   }
 
   shutdown(): void {
+    for (const [key, pending] of this.pendingRepoConfirmations.entries()) {
+      clearTimeout(pending.timeout);
+      this.pendingRepoConfirmations.delete(key);
+    }
+
     for (const key of this.resumeTimers.keys()) {
       this.clearResumeTimer(key);
     }
@@ -397,6 +425,17 @@ export class PipelineManager extends EventEmitter {
     }
   }
 
+  private clearStaleRepoConfirmationEffects(): void {
+    let changed = false;
+    for (const effect of this.store.getPendingEffects()) {
+      if (effect.type !== 'repo-confirmation') continue;
+      changed = this.store.ackEffect(effect.id) || changed;
+    }
+    if (changed) {
+      this.store.flushSync();
+    }
+  }
+
   private scheduleResume(task: TaskRecord): void {
     if (task.status !== 'interrupted' || task.recoveryState !== 'resume-pending' || !task.resumeAfter) {
       return;
@@ -419,6 +458,183 @@ export class PipelineManager extends EventEmitter {
     if (!timer) return;
     clearTimeout(timer);
     this.resumeTimers.delete(key);
+  }
+
+  private clearPendingRepoConfirmation(key: string, resolution?: RepoConfirmationResolution): void {
+    const pending = this.pendingRepoConfirmations.get(key);
+    if (!pending) return;
+
+    if (pending.timeout) {
+      clearTimeout(pending.timeout);
+    }
+    this.pendingRepoConfirmations.delete(key);
+
+    const acked = this.store.ackEffect(pending.effectId);
+    if (acked) {
+      this.store.flushSync();
+      this.emitSyncNeeded();
+    }
+
+    if (resolution) {
+      pending.resolve(resolution);
+    }
+  }
+
+  private getRepoConfirmationTimeoutMs(): number {
+    return this.config.pipeline.repoConfirmationTimeoutMs ?? DEFAULT_REPO_CONFIRMATION_TIMEOUT_MS;
+  }
+
+  private async waitForRepoConfirmation(
+    task: TaskRecord,
+    detectedRepoPath: string,
+    repoOptions: RepoCandidate[],
+    taskLogger: Logger,
+  ): Promise<RepoConfirmationResolution> {
+    const timeoutMs = this.getRepoConfirmationTimeoutMs();
+    const matchedRepo = repoOptions.find(candidate => candidate.path === detectedRepoPath);
+    const detectedRepoName = matchedRepo?.name ?? detectedRepoPath.split('/').at(-1) ?? detectedRepoPath;
+    const effectId = `${task.key}:repo-confirmation:${task.runId ?? task.attempt ?? Date.now()}`;
+    const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
+
+    if (timeoutMs <= 0) {
+      return {
+        kind: 'confirmed',
+        repoPath: detectedRepoPath,
+        repoName: detectedRepoName,
+        source: 'timeout',
+      };
+    }
+
+    this.clearPendingRepoConfirmation(task.key);
+
+    this.store.createEffect({
+      id: effectId,
+      type: 'repo-confirmation',
+      taskKey: task.key,
+      jiraHost: jiraHostFromUrl(task.jiraUrl),
+      payload: {
+        issueKey: task.key,
+        summary: task.summary,
+        detectedRepoName,
+        detectedRepoPath,
+        repoOptions: repoOptions.map(candidate => ({
+          name: candidate.name,
+          hint: candidate.hint,
+        })),
+        expiresAt,
+        timeoutMs,
+        paused: false,
+      },
+    });
+    this.store.flushSync();
+    this.emitSyncNeeded();
+
+    taskLogger.info(`Awaiting repo confirmation for ${detectedRepoName} (${timeoutMs}ms timeout)`);
+
+    return await new Promise<RepoConfirmationResolution>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingRepoConfirmations.delete(task.key);
+        const acked = this.store.ackEffect(effectId);
+        if (acked) {
+          this.store.flushSync();
+          this.emitSyncNeeded();
+        }
+        taskLogger.info(`Repo confirmation timed out; continuing with ${detectedRepoName}`);
+        resolve({
+          kind: 'confirmed',
+          repoPath: detectedRepoPath,
+          repoName: detectedRepoName,
+          source: 'timeout',
+        });
+      }, timeoutMs);
+
+      this.pendingRepoConfirmations.set(task.key, {
+        effectId,
+        detectedRepoPath,
+        detectedRepoName,
+        repoOptions,
+        timeout,
+        paused: false,
+        resolve,
+      });
+    });
+  }
+
+  resolveRepoConfirmation(
+    key: string,
+    input: { action: 'confirm' | 'change' | 'cancel' | 'pause'; repoName?: string },
+  ): { task?: TaskRecord; status: 'confirmed' | 'changed' | 'cancelled' | 'paused'; repoName?: string; repoPath?: string } {
+    const pending = this.pendingRepoConfirmations.get(key);
+    if (!pending) {
+      throw new Error(`Task ${key} is not waiting for repo confirmation`);
+    }
+
+    if (input.action === 'pause') {
+      if (!pending.paused) {
+        if (pending.timeout) {
+          clearTimeout(pending.timeout);
+          pending.timeout = undefined;
+        }
+        pending.paused = true;
+        const currentPayload = this.store.getEffect(pending.effectId)?.payload ?? {};
+        this.store.patchEffect(pending.effectId, {
+          payload: {
+            ...currentPayload,
+            paused: true,
+            expiresAt: undefined,
+          },
+        });
+        this.store.flushSync();
+        this.emitSyncNeeded();
+      }
+      return {
+        task: this.store.getTask(key),
+        status: 'paused',
+        repoName: pending.detectedRepoName,
+        repoPath: pending.detectedRepoPath,
+      };
+    }
+
+    if (input.action === 'cancel') {
+      this.clearPendingRepoConfirmation(key, { kind: 'cancelled' });
+      this.deleteTask(key);
+      return { status: 'cancelled' };
+    }
+
+    if (input.action === 'change') {
+      if (!input.repoName) {
+        throw new Error('repoName is required when choosing a different repo');
+      }
+      const matched = pending.repoOptions.find(candidate => candidate.name === input.repoName);
+      if (!matched) {
+        throw new Error(`Unknown repository "${input.repoName}"`);
+      }
+      this.clearPendingRepoConfirmation(key, {
+        kind: 'confirmed',
+        repoPath: matched.path,
+        repoName: matched.name,
+        source: 'user-changed',
+      });
+      return {
+        task: this.store.getTask(key),
+        status: 'changed',
+        repoName: matched.name,
+        repoPath: matched.path,
+      };
+    }
+
+    this.clearPendingRepoConfirmation(key, {
+      kind: 'confirmed',
+      repoPath: pending.detectedRepoPath,
+      repoName: pending.detectedRepoName,
+      source: 'user-confirmed',
+    });
+    return {
+      task: this.store.getTask(key),
+      status: 'confirmed',
+      repoName: pending.detectedRepoName,
+      repoPath: pending.detectedRepoPath,
+    };
   }
 
   private emitSyncNeeded(): void {
@@ -651,17 +867,24 @@ export class PipelineManager extends EventEmitter {
     try {
       const needsRepoPick = !started.repoPath && this.repoTarget.kind !== 'single-repo';
       const needsTaskMode = started.taskMode == null;
-      const repoDecisionSource = started.repoPath
+      let repoDecisionSource = started.repoPath
         ? 'task state'
         : this.repoTarget.kind === 'single-repo'
           ? 'single-repo config'
           : 'repo picker';
       const taskModeDecisionSource = started.taskMode != null ? 'task state' : 'task classifier';
+      const repoOptions = this.repoTarget.kind === 'repo-root'
+        ? listRepos(this.repoTarget.reposRoot)
+        : [{
+            name: basename(this.repoTarget.repoPath),
+            hint: basename(this.repoTarget.repoPath),
+            path: this.repoTarget.repoPath,
+          }];
 
       if (needsRepoPick) taskLogger.info('Choosing repository to operate on');
       if (needsTaskMode) taskLogger.info('Determining task mode');
 
-      const [repoPath, taskMode] = await Promise.all([
+      const [detectedRepoPath, taskMode] = await Promise.all([
         started.repoPath
           ? Promise.resolve(started.repoPath)
           : (this.repoTarget.kind === 'single-repo'
@@ -671,6 +894,28 @@ export class PipelineManager extends EventEmitter {
           ? Promise.resolve(started.taskMode)
           : resolveTaskMode({ ...started, comments: started.comments ?? [] }),
       ]);
+
+      let repoPath = detectedRepoPath;
+
+      if (!started.repoPath && repoOptions.length > 0) {
+        const confirmation = await this.waitForRepoConfirmation(started, detectedRepoPath, repoOptions, taskLogger);
+        if (confirmation.kind === 'cancelled') {
+          taskLogger.info('Task cancelled during repo confirmation');
+          return;
+        }
+        repoPath = confirmation.repoPath;
+        if (this.repoTarget.kind === 'single-repo') {
+          repoDecisionSource = confirmation.source === 'user-confirmed'
+            ? 'single-repo config (user confirmed)'
+            : 'single-repo config (auto-confirmed after timeout)';
+        } else {
+          repoDecisionSource = confirmation.source === 'user-changed'
+            ? 'repo confirmation override'
+            : confirmation.source === 'user-confirmed'
+              ? 'repo picker (user confirmed)'
+              : 'repo picker (auto-confirmed after timeout)';
+        }
+      }
 
       taskLogger.info(`Repository selected: ${repoPath} (source: ${repoDecisionSource})`);
       taskLogger.info(`Task mode selected: ${taskMode} (source: ${taskModeDecisionSource})`);

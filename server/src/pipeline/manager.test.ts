@@ -3,7 +3,7 @@ import { PipelineManager } from './manager.js';
 import { StateStore } from '../state/store.js';
 import type { ServerConfig } from '../config/types.js';
 import type { TaskInput } from '../claude/types.js';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { planFilePath } from '../claude/prompt-builder.js';
@@ -22,6 +22,9 @@ vi.mock('../claude/executor.js', () => ({
 // Mock repo picker
 vi.mock('../repo-picker.js', () => ({
   pickRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
+  listRepos: vi.fn().mockReturnValue([
+    { name: 'test-repo', hint: 'test-repo', path: '/tmp/test-repo' },
+  ]),
 }));
 
 // Mock MCP config helpers
@@ -47,7 +50,7 @@ vi.mock('../claude/compact-log-generator.js', () => ({
 
 const testConfig: ServerConfig = {
   claude: { maxBudgetUsd: 2.0 },
-  pipeline: { concurrency: 1 },
+  pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 0 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },
   web: { port: 3456, host: '127.0.0.1' },
 };
@@ -347,7 +350,7 @@ describe('PipelineManager', () => {
     expect(serverLog).toContain('Starting task: Test task');
     expect(serverLog).toContain('Preparing workspace');
     expect(serverLog).toContain('Choosing repository to operate on');
-    expect(serverLog).toContain('Repository selected: /tmp/test-repo (source: repo picker)');
+    expect(serverLog).toContain('Repository selected: /tmp/test-repo (source: repo picker (auto-confirmed after timeout))');
     expect(serverLog).toContain('Task mode selected: implement (source: task classifier)');
     expect(serverLog).toContain('Building Claude prompt');
     expect(serverLog).toContain('Launching Claude Code');
@@ -647,6 +650,181 @@ describe('PipelineManager', () => {
     await new Promise(r => setTimeout(r, 200));
 
     expect(vi.mocked(pickRepo)).toHaveBeenCalledWith('/tmp/repos', expect.objectContaining({ key: 'PROJ-ROOT' }));
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('waits for repo confirmation and uses the repo chosen by the user', async () => {
+    const { pickRepo, listRepos } = await import('../repo-picker.js');
+    const reposRoot = mkdtempSync(join(tmpdir(), 'jiranimo-confirm-root-'));
+    const detectedRepoPath = join(reposRoot, 'frontend-app');
+    const chosenRepoPath = join(reposRoot, 'api-service');
+
+    mkdirSync(join(detectedRepoPath, '.git'), { recursive: true });
+    mkdirSync(join(chosenRepoPath, '.git'), { recursive: true });
+
+    vi.mocked(listRepos).mockReturnValueOnce([
+      { name: 'frontend-app', hint: 'frontend-app - React UI', path: detectedRepoPath },
+      { name: 'api-service', hint: 'api-service - Express API', path: chosenRepoPath },
+    ]);
+    vi.mocked(pickRepo).mockResolvedValueOnce(detectedRepoPath);
+
+    const mgr = new PipelineManager(store, {
+      ...testConfig,
+      pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 10_000 },
+    }, { kind: 'repo-root', reposRoot });
+    mgr.submitTask({ ...sampleInput, key: 'PROJ-CONFIRM' });
+
+    await vi.waitFor(() => {
+      const effect = store.getPendingEffects('test.atlassian.net').find(candidate => candidate.type === 'repo-confirmation');
+      expect(effect).toBeDefined();
+    });
+
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    expect(vi.mocked(executeClaudeCode)).not.toHaveBeenCalled();
+
+    const response = mgr.resolveRepoConfirmation('PROJ-CONFIRM', {
+      action: 'change',
+      repoName: 'api-service',
+    });
+
+    expect(response.status).toBe('changed');
+    expect(response.repoPath).toBe(chosenRepoPath);
+
+    await vi.waitFor(() => {
+      expect(store.getTask('PROJ-CONFIRM')?.status).toBe('completed');
+    });
+
+    expect(store.getTask('PROJ-CONFIRM')?.repoPath).toBe(chosenRepoPath);
+    expect(store.getPendingEffects('test.atlassian.net').some(effect => effect.type === 'repo-confirmation')).toBe(false);
+
+    rmSync(reposRoot, { recursive: true, force: true });
+    mgr.shutdown();
+    store.destroy();
+  });
+
+  it('auto-confirms the detected repo after 10 seconds with no user response', async () => {
+    const { pickRepo, listRepos } = await import('../repo-picker.js');
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    const reposRoot = mkdtempSync(join(tmpdir(), 'jiranimo-timeout-root-'));
+    const detectedRepoPath = join(reposRoot, 'frontend-app');
+    const otherRepoPath = join(reposRoot, 'api-service');
+
+    mkdirSync(join(detectedRepoPath, '.git'), { recursive: true });
+    mkdirSync(join(otherRepoPath, '.git'), { recursive: true });
+
+    vi.useFakeTimers();
+    try {
+      vi.mocked(listRepos).mockReturnValueOnce([
+        { name: 'frontend-app', hint: 'frontend-app - React UI', path: detectedRepoPath },
+        { name: 'api-service', hint: 'api-service - Express API', path: otherRepoPath },
+      ]);
+      vi.mocked(pickRepo).mockResolvedValueOnce(detectedRepoPath);
+
+      const mgr = new PipelineManager(store, {
+        ...testConfig,
+        pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 10_000 },
+      }, { kind: 'repo-root', reposRoot });
+      mgr.submitTask({ ...sampleInput, key: 'PROJ-TIMEOUT' });
+
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(store.getPendingEffects('test.atlassian.net').some(effect => effect.type === 'repo-confirmation')).toBe(true);
+      expect(vi.mocked(executeClaudeCode)).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(store.getPendingEffects('test.atlassian.net').some(effect => effect.type === 'repo-confirmation')).toBe(false);
+      expect(vi.mocked(executeClaudeCode)).toHaveBeenCalled();
+      expect(store.getTask('PROJ-TIMEOUT')?.repoPath).toBe(detectedRepoPath);
+
+      mgr.shutdown();
+    } finally {
+      vi.useRealTimers();
+      rmSync(reposRoot, { recursive: true, force: true });
+      store.destroy();
+    }
+  });
+
+  it('pauses repo confirmation countdown when the user starts changing the repo', async () => {
+    const { pickRepo, listRepos } = await import('../repo-picker.js');
+    const { executeClaudeCode } = await import('../claude/executor.js');
+    const reposRoot = mkdtempSync(join(tmpdir(), 'jiranimo-pause-root-'));
+    const detectedRepoPath = join(reposRoot, 'frontend-app');
+    const otherRepoPath = join(reposRoot, 'api-service');
+
+    mkdirSync(join(detectedRepoPath, '.git'), { recursive: true });
+    mkdirSync(join(otherRepoPath, '.git'), { recursive: true });
+
+    vi.useFakeTimers();
+    try {
+      vi.mocked(listRepos).mockReturnValueOnce([
+        { name: 'frontend-app', hint: 'frontend-app - React UI', path: detectedRepoPath },
+        { name: 'api-service', hint: 'api-service - Express API', path: otherRepoPath },
+      ]);
+      vi.mocked(pickRepo).mockResolvedValueOnce(detectedRepoPath);
+
+      const mgr = new PipelineManager(store, {
+        ...testConfig,
+        pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 10_000 },
+      }, { kind: 'repo-root', reposRoot });
+      mgr.submitTask({ ...sampleInput, key: 'PROJ-PAUSE' });
+
+      await vi.advanceTimersByTimeAsync(1);
+
+      const response = mgr.resolveRepoConfirmation('PROJ-PAUSE', { action: 'pause' });
+      expect(response.status).toBe('paused');
+
+      const effect = store.getPendingEffects('test.atlassian.net').find(candidate => candidate.type === 'repo-confirmation');
+      expect(effect?.payload.paused).toBe(true);
+      expect(effect?.payload.expiresAt).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(store.getPendingEffects('test.atlassian.net').some(candidate => candidate.type === 'repo-confirmation')).toBe(true);
+      expect(vi.mocked(executeClaudeCode)).not.toHaveBeenCalled();
+
+      mgr.shutdown();
+    } finally {
+      vi.useRealTimers();
+      rmSync(reposRoot, { recursive: true, force: true });
+      store.destroy();
+    }
+  });
+
+  it('shows repo confirmation even when repo-root discovery finds only one repo', async () => {
+    const { pickRepo, listRepos } = await import('../repo-picker.js');
+    const reposRoot = mkdtempSync(join(tmpdir(), 'jiranimo-single-confirm-root-'));
+    const detectedRepoPath = join(reposRoot, 'customer-web');
+
+    mkdirSync(join(detectedRepoPath, '.git'), { recursive: true });
+
+    vi.mocked(listRepos).mockReturnValueOnce([
+      { name: 'customer-web', hint: 'customer-web - storefront', path: detectedRepoPath },
+    ]);
+    vi.mocked(pickRepo).mockResolvedValueOnce(detectedRepoPath);
+
+    const mgr = new PipelineManager(store, {
+      ...testConfig,
+      pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 10_000 },
+    }, { kind: 'repo-root', reposRoot });
+    mgr.submitTask({ ...sampleInput, key: 'PROJ-SINGLE-CONFIRM' });
+
+    await vi.waitFor(() => {
+      const effect = store.getPendingEffects('test.atlassian.net').find(candidate => candidate.type === 'repo-confirmation');
+      expect(effect).toBeDefined();
+      expect(effect?.payload.detectedRepoName).toBe('customer-web');
+    });
+
+    const response = mgr.resolveRepoConfirmation('PROJ-SINGLE-CONFIRM', { action: 'confirm' });
+    expect(response.status).toBe('confirmed');
+    expect(response.repoPath).toBe(detectedRepoPath);
+
+    await vi.waitFor(() => {
+      expect(store.getTask('PROJ-SINGLE-CONFIRM')?.status).toBe('completed');
+    });
+
+    rmSync(reposRoot, { recursive: true, force: true });
     mgr.shutdown();
     store.destroy();
   });

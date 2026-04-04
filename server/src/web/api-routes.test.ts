@@ -15,6 +15,9 @@ vi.mock('../claude/executor.js', () => ({
 }));
 vi.mock('../repo-picker.js', () => ({
   pickRepo: vi.fn().mockResolvedValue('/tmp/test-repo'),
+  listRepos: vi.fn().mockReturnValue([
+    { name: 'test-repo', hint: 'test-repo', path: '/tmp/test-repo' },
+  ]),
 }));
 vi.mock('../mcp/server.js', () => ({
   createMcpHandler: vi.fn().mockReturnValue(vi.fn()),
@@ -27,7 +30,7 @@ vi.mock('../github/review-comments.js', () => ({
 
 const testConfig: ServerConfig = {
   claude: { maxBudgetUsd: 2.0 },
-  pipeline: { concurrency: 1 },
+  pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 0 },
   git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: true },
   web: { port: 3456, host: '127.0.0.1' },
 };
@@ -195,6 +198,84 @@ describe('POST /api/tasks/:key/retry', () => {
 
     const res = await request(app).post('/api/tasks/PROJ-1/retry');
     expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/tasks/:key/repo-confirmation', () => {
+  it('lets the client override the detected repo before implementation starts', async () => {
+    const { pickRepo, listRepos } = await import('../repo-picker.js');
+    pipeline.shutdown();
+
+    vi.mocked(listRepos).mockReturnValueOnce([
+      { name: 'frontend-app', hint: 'frontend-app - React UI', path: '/tmp/frontend-app' },
+      { name: 'api-service', hint: 'api-service - Express API', path: '/tmp/api-service' },
+    ]);
+    vi.mocked(pickRepo).mockResolvedValueOnce('/tmp/frontend-app');
+
+    pipeline = new PipelineManager(store, {
+      ...testConfig,
+      pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 10_000 },
+    }, testRepoTarget);
+    app = createApp(store, pipeline);
+
+    const submitRes = await request(app)
+      .post('/api/tasks')
+      .send({ ...validTask, key: 'PROJ-REPO', summary: 'Confirm repo' });
+
+    expect(submitRes.status).toBe(201);
+
+    await vi.waitFor(() => {
+      const effect = store.getPendingEffects('test.atlassian.net').find(candidate => candidate.type === 'repo-confirmation');
+      expect(effect).toBeDefined();
+    });
+
+    const res = await request(app)
+      .post('/api/tasks/PROJ-REPO/repo-confirmation')
+      .send({ action: 'change', repoName: 'api-service' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('changed');
+    expect(res.body.repoName).toBe('api-service');
+    expect(res.body.repoPath).toBe('/tmp/api-service');
+  });
+
+  it('pauses repo confirmation countdown when the client starts choosing a different repo', async () => {
+    const { pickRepo, listRepos } = await import('../repo-picker.js');
+    pipeline.shutdown();
+
+    vi.mocked(listRepos).mockReturnValueOnce([
+      { name: 'frontend-app', hint: 'frontend-app - React UI', path: '/tmp/frontend-app' },
+      { name: 'api-service', hint: 'api-service - Express API', path: '/tmp/api-service' },
+    ]);
+    vi.mocked(pickRepo).mockResolvedValueOnce('/tmp/frontend-app');
+
+    pipeline = new PipelineManager(store, {
+      ...testConfig,
+      pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 10_000 },
+    }, testRepoTarget);
+    app = createApp(store, pipeline);
+
+    const submitRes = await request(app)
+      .post('/api/tasks')
+      .send({ ...validTask, key: 'PROJ-REPO-PAUSE', summary: 'Pause repo confirm' });
+
+    expect(submitRes.status).toBe(201);
+
+    await vi.waitFor(() => {
+      const effect = store.getPendingEffects('test.atlassian.net').find(candidate => candidate.type === 'repo-confirmation');
+      expect(effect).toBeDefined();
+    });
+
+    const res = await request(app)
+      .post('/api/tasks/PROJ-REPO-PAUSE/repo-confirmation')
+      .send({ action: 'pause' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('paused');
+
+    const effect = store.getPendingEffects('test.atlassian.net').find(candidate => candidate.type === 'repo-confirmation');
+    expect(effect?.payload.paused).toBe(true);
+    expect(effect?.payload.expiresAt).toBeUndefined();
   });
 });
 

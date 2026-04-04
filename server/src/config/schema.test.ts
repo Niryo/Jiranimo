@@ -5,7 +5,7 @@ const validMinimal = {};
 
 const validFull = {
   claude: { model: 'sonnet', maxBudgetUsd: 5.0, allowedTools: ['Edit', 'Read'] },
-  pipeline: { concurrency: 3 },
+  pipeline: { concurrency: 3, repoConfirmationTimeoutMs: 12000 },
   git: { branchPrefix: 'auto/', defaultBaseBranch: 'develop', pushRemote: 'upstream', createDraftPr: false },
   web: { port: 8080, host: '0.0.0.0' },
 };
@@ -15,6 +15,7 @@ describe('serverConfigSchema', () => {
     const result = serverConfigSchema.parse(validMinimal);
     expect(result.claude.maxBudgetUsd).toBeUndefined();
     expect(result.pipeline.concurrency).toBe(1);
+    expect(result.pipeline.repoConfirmationTimeoutMs).toBe(10_000);
     expect(result.git.branchPrefix).toBe('jiranimo/');
     expect(result.git.defaultBaseBranch).toBe('main');
     expect(result.git.pushRemote).toBe('origin');
@@ -29,6 +30,7 @@ describe('serverConfigSchema', () => {
     expect(result.claude.model).toBe('sonnet');
     expect(result.claude.maxBudgetUsd).toBe(5.0);
     expect(result.pipeline.concurrency).toBe(3);
+    expect(result.pipeline.repoConfirmationTimeoutMs).toBe(12_000);
     expect(result.git.branchPrefix).toBe('auto/');
     expect(result.web.port).toBe(8080);
   });

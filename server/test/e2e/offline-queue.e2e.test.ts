@@ -65,7 +65,7 @@ async function startJiranimoServer(reposRoot: string): Promise<{ port: number; s
   const store = new StateStore({ filePath: join(stateDir, 'state.json'), flushDelayMs: 0 });
   const config: ServerConfig = {
     claude: { maxBudgetUsd: 2.0 },
-    pipeline: { concurrency: 1 },
+    pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 0 },
     git: { branchPrefix: 'jiranimo/', defaultBaseBranch: 'main', pushRemote: 'origin', createDraftPr: false },
     web: { port: 0, host: '127.0.0.1' },
   };

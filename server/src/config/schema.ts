@@ -16,6 +16,7 @@ const claudeConfigSchema = z.object({
 const pipelineConfigSchema = z.object({
   // 0 = unlimited (all queued tasks run in parallel); positive integer = cap
   concurrency: z.number().int().min(0).default(0),
+  repoConfirmationTimeoutMs: z.number().int().min(0).default(10_000),
 });
 
 const gitConfigSchema = z.object({
@@ -41,7 +42,7 @@ export const serverConfigSchema = z.object({
   logsDir: z.string().optional(),
   statePath: z.string().optional(),
   claude: claudeConfigSchema.default({ allowedTools: DEFAULT_ALLOWED_TOOLS }),
-  pipeline: pipelineConfigSchema.default({ concurrency: 1 }),
+  pipeline: pipelineConfigSchema.default({ concurrency: 1, repoConfirmationTimeoutMs: 10_000 }),
   git: gitConfigSchema.default({
     branchPrefix: 'jiranimo/',
     defaultBaseBranch: 'main',

@@ -12,6 +12,10 @@ function isBoardType(value: unknown): value is JiraBoardType {
   return value === 'scrum' || value === 'kanban';
 }
 
+function isRepoConfirmationAction(value: unknown): value is 'confirm' | 'change' | 'cancel' | 'pause' {
+  return value === 'confirm' || value === 'change' || value === 'cancel' || value === 'pause';
+}
+
 export function createApiRouter(store: StateStore, pipeline: PipelineManager): Router {
   const router = Router();
 
@@ -114,6 +118,29 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
     } catch (err) {
       const message = (err as Error).message;
       if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(400).json({ error: message });
+      }
+    }
+  });
+
+  router.post('/tasks/:key/repo-confirmation', (req: Request, res: Response) => {
+    const action = req.body?.action;
+    if (!isRepoConfirmationAction(action)) {
+      res.status(400).json({ error: 'action must be one of: confirm, change, cancel, pause' });
+      return;
+    }
+
+    try {
+      const result = pipeline.resolveRepoConfirmation(param(req.params.key), {
+        action,
+        repoName: typeof req.body?.repoName === 'string' ? req.body.repoName : undefined,
+      });
+      res.json(result);
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('not found') || message.includes('not waiting')) {
         res.status(404).json({ error: message });
       } else {
         res.status(400).json({ error: message });
