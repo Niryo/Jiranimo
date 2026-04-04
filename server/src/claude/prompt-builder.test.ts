@@ -152,6 +152,29 @@ describe('buildPrompt', () => {
     expect(prompt).not.toContain('gh pr create');
   });
 
+  it('generates continue-work mode prompt that reuses the existing branch and reviews Jira comments', () => {
+    const prompt = buildPrompt({
+      ...baseTask,
+      branchName: 'jiranimo/PROJ-123-feature',
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prNumber: 42,
+      comments: [{ author: 'QA', body: 'Please verify the retry path' }],
+      githubReviewComments: [{
+        id: 101,
+        fingerprint: '101:2026-04-03T10:00:00Z',
+        kind: 'conversation',
+        author: 'reviewer',
+        body: 'Please rename this helper',
+      }],
+    } as any, baseConfig, repoPath, 'continue-work');
+    expect(prompt).toContain('continuing work on an existing Jira task');
+    expect(prompt).toContain('Please verify the retry path');
+    expect(prompt).toContain('Please rename this helper');
+    expect(prompt).toContain('git -C /home/dev/repos/my-app worktree add /tmp/jiranimo-PROJ-123 jiranimo/PROJ-123-feature');
+    expect(prompt).toContain('Do not create an empty commit');
+    expect(prompt).not.toContain('gh pr create');
+  });
+
   it('includes the saved plan when implementing a previously planned ticket', () => {
     const prompt = buildPrompt({
       ...baseTask,

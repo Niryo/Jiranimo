@@ -625,6 +625,73 @@ describe('PipelineManager', () => {
     store.destroy();
   });
 
+  it('queues a continue-work run on the same branch with fresh Jira and GitHub comments', async () => {
+    const { fetchPendingGithubReviewComments } = await import('../github/review-comments.js');
+    store.beginServerEpoch();
+    store.upsertTask({
+      key: 'PROJ-CONTINUE',
+      summary: 'Existing PR task',
+      description: 'Original description',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [{ author: 'PM', body: 'Initial implementation looks good', created: '2026-04-01T10:00:00Z' }],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-CONTINUE',
+      status: 'completed',
+      taskMode: 'implement',
+      repoPath: '/tmp/existing-repo',
+      prUrl: 'https://github.com/org/repo/pull/77',
+      prNumber: 77,
+      branchName: 'jiranimo/PROJ-CONTINUE-feature',
+      fixedGithubCommentFingerprints: ['review:100:2026-04-02T10:00:00Z'],
+      trackedBoards: ['test.atlassian.net:board-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    vi.mocked(fetchPendingGithubReviewComments).mockResolvedValueOnce([{
+      id: 101,
+      fingerprint: 'conversation:101:2026-04-03T10:00:00Z',
+      kind: 'conversation',
+      author: 'reviewer',
+      body: 'Please verify the empty state too',
+    }]);
+
+    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
+    const result = await mgr.continueTask('PROJ-CONTINUE', {
+      description: 'Updated description',
+      comments: [
+        { author: 'PM', body: 'Please re-check the empty state', created: '2026-04-04T08:00:00Z' },
+        { author: 'QA', body: 'Also verify the retry path', created: '2026-04-04T09:00:00Z' },
+      ],
+    });
+
+    expect(result.pendingGithubComments).toBe(1);
+    expect(result.task.status).toBe('queued');
+    expect(result.task.taskMode).toBe('continue-work');
+    expect(result.task.previousTaskMode).toBe('implement');
+    expect(result.task.comments).toEqual([
+      { author: 'PM', body: 'Please re-check the empty state', created: '2026-04-04T08:00:00Z' },
+      { author: 'QA', body: 'Also verify the retry path', created: '2026-04-04T09:00:00Z' },
+    ]);
+    expect(result.task.pendingGithubCommentFingerprints).toEqual(['conversation:101:2026-04-03T10:00:00Z']);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const updated = store.getTask('PROJ-CONTINUE');
+    expect(updated?.status).toBe('completed');
+    expect(updated?.description).toBe('Updated description');
+    expect(updated?.fixedGithubCommentFingerprints).toEqual([
+      'review:100:2026-04-02T10:00:00Z',
+      'conversation:101:2026-04-03T10:00:00Z',
+    ]);
+    expect(updated?.pendingGithubCommentFingerprints).toEqual([]);
+
+    mgr.shutdown();
+    store.destroy();
+  });
+
   it('uses the single repo target directly without repo picker', async () => {
     const { pickRepo } = await import('../repo-picker.js');
     const singleRepoInput = { ...sampleInput, key: 'PROJ-SINGLE' };

@@ -166,7 +166,13 @@ export class PipelineManager extends EventEmitter {
     const persisted = this.store.upsertTask(task);
     this.store.enqueueTask(task.key);
     this.store.flushSync();
-    const verb = task.taskMode === 'screenshot' ? 'screenshot' : task.taskMode === 'fix-comments' ? 'fix comments for' : 'implement';
+    const verb = task.taskMode === 'screenshot'
+      ? 'screenshot'
+      : task.taskMode === 'fix-comments'
+        ? 'fix comments for'
+        : task.taskMode === 'continue-work'
+          ? 'continue work on'
+          : 'implement';
     this.logger.info(`Received task to ${verb}: ${task.summary} (${task.key})`);
     this.emit('task-created', persisted);
     this.emitSyncNeeded();
@@ -213,6 +219,66 @@ export class PipelineManager extends EventEmitter {
     setImmediate(() => this.processQueue());
 
     return { task: updated, pendingComments: githubReviewComments.length };
+  }
+
+  async continueTask(
+    key: string,
+    input: Partial<Pick<
+      TaskRecord,
+      'summary' | 'description' | 'acceptanceCriteria' | 'priority' | 'issueType' | 'labels' | 'comments'
+      | 'subtasks' | 'linkedIssues' | 'attachments' | 'assignee' | 'reporter' | 'components'
+      | 'parentKey' | 'jiraUrl'
+    >>,
+  ): Promise<{ task: TaskRecord; pendingGithubComments: number }> {
+    const task = this.store.getTask(key);
+    if (!task) throw new Error(`Task ${key} not found`);
+    if (task.status !== 'completed' && task.status !== 'failed') {
+      throw new Error(`Task ${key} must be completed or failed before continuing work`);
+    }
+    if (!task.repoPath || !task.branchName) {
+      throw new Error(`Task ${key} does not have an existing repo and branch to continue on`);
+    }
+
+    const githubReviewComments = task.prUrl
+      ? await fetchPendingGithubReviewComments(task.prUrl, task.fixedGithubCommentFingerprints ?? [])
+      : [];
+
+    const updated = this.store.updateTaskStatus(key, 'queued', {
+      summary: input.summary ?? task.summary,
+      description: input.description ?? task.description,
+      acceptanceCriteria: input.acceptanceCriteria ?? task.acceptanceCriteria,
+      priority: input.priority ?? task.priority,
+      issueType: input.issueType ?? task.issueType,
+      labels: input.labels ?? task.labels,
+      comments: input.comments ?? task.comments ?? [],
+      subtasks: input.subtasks ?? task.subtasks,
+      linkedIssues: input.linkedIssues ?? task.linkedIssues,
+      attachments: input.attachments ?? task.attachments,
+      assignee: input.assignee ?? task.assignee,
+      reporter: input.reporter ?? task.reporter,
+      components: input.components ?? task.components,
+      parentKey: input.parentKey ?? task.parentKey,
+      jiraUrl: input.jiraUrl ?? task.jiraUrl,
+      taskMode: 'continue-work',
+      previousTaskMode: task.taskMode,
+      githubReviewComments,
+      pendingGithubCommentFingerprints: githubReviewComments.map(comment => comment.fingerprint),
+      errorMessage: undefined,
+      recoveryState: 'none',
+      resumeAfter: undefined,
+      resumeMode: undefined,
+      resumeReason: undefined,
+      completedAt: undefined,
+      activePid: undefined,
+      screenshotFailed: undefined,
+      screenshotFailReason: undefined,
+    });
+    this.store.enqueueTask(key);
+    this.store.flushSync();
+    this.emitSyncNeeded();
+    setImmediate(() => this.processQueue());
+
+    return { task: updated, pendingGithubComments: githubReviewComments.length };
   }
 
   syncBoardPresence(input: {

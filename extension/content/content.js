@@ -65,6 +65,12 @@
   let taskPrUrls = {};
   /** @type {Record<string, string>} taskKey -> recoveryState */
   let taskRecoveryStates = {};
+  /** @type {Record<string, boolean>} taskKey -> continue-work state */
+  let taskContinueStates = {};
+  /** @type {Map<string, { status: string; fetchedAt: number }>} */
+  const issueStatusCache = new Map();
+  /** @type {number} */
+  let continueStateRefreshToken = 0;
   /** @type {number} */
   let serverEpoch = 0;
   /** @type {number} */
@@ -438,7 +444,7 @@
         startScanning();
       });
     } else {
-      if (!boardConfig.boardType) {
+      if (!boardConfig.boardType || !Array.isArray(boardConfig.todoStatuses)) {
         boardConfig = await BoardConfig.ensureMetadata(currentBoardId, boardConfig);
       }
       log('Board config loaded:', JSON.stringify(boardConfig));
@@ -506,6 +512,7 @@
       }
     }
     log(`Injected ${injected} badges`);
+    void refreshContinueBadgeStates();
   }
 
   function extractIssueKeyFromCard(card) {
@@ -1251,6 +1258,7 @@
     setDebugInfo({ issueKey, stage: 'click-start', lastError: null });
     const status = taskStatuses[issueKey];
     const recoveryState = taskRecoveryStates[issueKey];
+    const shouldContinue = status === 'completed' && taskContinueStates[issueKey];
 
     if (status === 'failed') {
       setBadgeState(icon, issueKey, 'in-progress', 'Retrying...');
@@ -1273,6 +1281,30 @@
     }
 
     if (status === 'queued' || status === 'in-progress') return;
+
+    if (shouldContinue) {
+      setBadgeState(icon, issueKey, 'in-progress', 'Continuing work...');
+
+      try {
+        let issueData = await fetchIssueDetails(issueKey);
+        if (!issueData) {
+          issueData = buildFallbackIssueDetails(issueKey);
+        }
+
+        const result = await serverFetch(`/api/tasks/${issueKey}/continue-work`, 'POST', issueData);
+        if (result.ok) {
+          taskContinueStates[issueKey] = false;
+          taskStatuses[issueKey] = 'queued';
+          updateBadgeState(icon, issueKey, 'queued');
+        } else {
+          setBadgeState(icon, issueKey, 'continue', (result.data?.error || `Error ${result.status}`) + ' — click to continue');
+        }
+      } catch (err) {
+        warn('Continue work failed (is the server running?):', err);
+        setBadgeState(icon, issueKey, 'continue', 'Server offline — click to continue');
+      }
+      return;
+    }
 
     if (status === 'completed' && taskPrUrls[issueKey]) {
       window.open(taskPrUrls[issueKey], '_blank');
@@ -1329,6 +1361,7 @@
 
   function updateBadgeState(icon, issueKey, status) {
     const label = icon.querySelector('.jiranimo-label');
+    const shouldContinue = status === 'completed' && taskContinueStates[issueKey];
     switch (status) {
       case 'queued':
         icon.className = 'jiranimo-icon queued';
@@ -1341,9 +1374,14 @@
         if (label) label.textContent = 'Running...';
         break;
       case 'completed':
-        icon.className = 'jiranimo-icon completed';
-        icon.title = 'PR ready — click to open';
-        if (label) label.textContent = 'Done';
+        icon.className = shouldContinue ? 'jiranimo-icon continue' : 'jiranimo-icon completed';
+        icon.title = shouldContinue ? 'Continue work with AI' : 'PR ready — click to open';
+        if (label) label.textContent = shouldContinue ? 'Continue' : 'Done';
+        break;
+      case 'continue':
+        icon.className = 'jiranimo-icon continue';
+        icon.title = 'Continue work with AI';
+        if (label) label.textContent = 'Continue';
         break;
       case 'interrupted':
         icon.className = 'jiranimo-icon failed';
@@ -1389,8 +1427,10 @@
       }
 
       if (cardsChanged) {
+        issueStatusCache.clear();
         debouncedScan();
         scheduleBoardPresenceSync();
+        void refreshContinueBadgeStates();
       }
       if (headerChanged) {
         scheduleDashboardLinkInjection();
@@ -1471,13 +1511,77 @@
   let ws = null;
 
   async function getIssueStatus(issueKey) {
+    const cached = issueStatusCache.get(issueKey);
+    if (cached && Date.now() - cached.fetchedAt < 5_000) {
+      return cached.status;
+    }
     try {
       const res = await fetch(`${location.origin}/rest/api/3/issue/${issueKey}?fields=status`, { credentials: 'include' });
       if (!res.ok) return '';
       const issue = await res.json();
-      return issue.fields?.status?.name || '';
+      const status = issue.fields?.status?.name || '';
+      issueStatusCache.set(issueKey, { status, fetchedAt: Date.now() });
+      return status;
     } catch {
       return '';
+    }
+  }
+
+  function inferIsTodoStatus(statusName) {
+    const normalizedStatus = statusName.trim().toLowerCase();
+    if (!normalizedStatus) return false;
+
+    const todoStatuses = Array.isArray(boardConfig?.todoStatuses)
+      ? boardConfig.todoStatuses
+        .filter((status) => typeof status === 'string')
+        .map((status) => status.trim().toLowerCase())
+      : [];
+    if (todoStatuses.length > 0) {
+      return todoStatuses.includes(normalizedStatus);
+    }
+
+    const inProgressStatus = typeof boardConfig?.transitions?.inProgress?.name === 'string'
+      ? boardConfig.transitions.inProgress.name.trim().toLowerCase()
+      : '';
+    const inReviewStatus = typeof boardConfig?.transitions?.inReview?.name === 'string'
+      ? boardConfig.transitions.inReview.name.trim().toLowerCase()
+      : '';
+
+    if (normalizedStatus === inProgressStatus || normalizedStatus === inReviewStatus) {
+      return false;
+    }
+
+    return /(^to do$|^todo$|backlog|selected for development|open)/i.test(statusName);
+  }
+
+  async function refreshContinueBadgeStates() {
+    const refreshToken = ++continueStateRefreshToken;
+    const completedIssueKeys = [...document.querySelectorAll(`[${BADGE_ATTR}]`)]
+      .map((element) => element.getAttribute(BADGE_ATTR) || '')
+      .filter((issueKey) => issueKey && taskStatuses[issueKey] === 'completed');
+
+    const nextContinueStates = { ...taskContinueStates };
+    for (const issueKey of Object.keys(nextContinueStates)) {
+      if (taskStatuses[issueKey] !== 'completed') {
+        delete nextContinueStates[issueKey];
+      }
+    }
+
+    await Promise.all(completedIssueKeys.map(async (issueKey) => {
+      const statusName = await getIssueStatus(issueKey);
+      nextContinueStates[issueKey] = inferIsTodoStatus(statusName);
+    }));
+
+    if (refreshToken !== continueStateRefreshToken) {
+      return;
+    }
+
+    taskContinueStates = nextContinueStates;
+    for (const issueKey of completedIssueKeys) {
+      const badge = document.querySelector(`[${BADGE_ATTR}="${issueKey}"]`);
+      if (badge) {
+        updateBadgeState(badge, issueKey, 'completed');
+      }
     }
   }
 
@@ -1596,6 +1700,7 @@
         if (!nextStatuses[existingKey]) {
           const badge = document.querySelector(`[${BADGE_ATTR}="${existingKey}"]`);
           if (badge) updateBadgeState(badge, existingKey, 'idle');
+          delete taskContinueStates[existingKey];
         }
       }
 
@@ -1611,6 +1716,8 @@
           updateBadgeState(badge, task.key, task.status);
         }
       }
+
+      void refreshContinueBadgeStates();
 
       await processPendingEffects(snapshot.pendingEffects || []);
       const pendingRepoEffectIds = new Set(

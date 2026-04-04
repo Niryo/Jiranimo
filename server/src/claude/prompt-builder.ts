@@ -19,6 +19,9 @@ interface PromptTask {
   components?: string[];
   parentKey?: string;
   jiraUrl: string;
+  branchName?: string;
+  prUrl?: string;
+  prNumber?: number;
   previousTaskMode?: TaskMode;
   planContent?: string;
 }
@@ -199,6 +202,78 @@ git push -u ${pushRemote} ${branchName}
 **Step 5 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
 - \`jiranimo_progress\` — send progress updates as you work (task_key="${task.key}")
 - \`jiranimo_complete\` — when the PR branch is updated (task_key="${task.key}")
+- \`jiranimo_fail\` — if you hit an unrecoverable error (task_key="${task.key}")
+
+**Clean up the worktree**:
+\`\`\`
+git -C ${repoPath} worktree remove ${worktreePath}
+\`\`\`${appendSection}`;
+  }
+
+  if (mode === 'continue-work') {
+    const branchName = task.branchName ?? screenshotContext?.branchName;
+    const prUrl = task.prUrl ?? screenshotContext?.prUrl;
+    const prNumber = task.prNumber ?? screenshotContext?.prNumber;
+
+    if (!branchName) {
+      throw new Error(`Continue-work mode requires an existing branch for ${task.key}`);
+    }
+
+    return `You are continuing work on an existing Jira task that was previously implemented by Jiranimo. Reuse the existing branch and PR if one already exists.
+
+## Task
+\`\`\`json
+${taskJson}
+\`\`\`${recoverySection}
+${existingPlanSection}
+
+### Context
+- Branch: \`${branchName}\`
+- Existing PR: ${prUrl ?? 'none'}
+
+The task JSON may include:
+- \`comments\`: the latest Jira ticket comments. Review them carefully for new requests, QA feedback, regressions, or follow-up scope.
+- \`githubReviewComments\`: any new GitHub PR comments that still need to be addressed.
+
+This run is not a fresh implementation. First verify the current implementation state, then make the smallest correct follow-up changes needed.
+
+**Step 1 - Check out the existing branch**:
+\`\`\`bash
+if [ ! -d "${worktreePath}" ]; then
+  git -C ${repoPath} worktree add ${worktreePath} ${branchName}
+fi
+cd ${worktreePath}
+\`\`\`
+
+**Step 2 - Verify the current implementation before changing code**:
+- Run \`git status\`
+- Inspect the current branch diff and recent commits
+- If a PR exists, inspect it with ${prNumber ? `\`gh pr view ${prNumber} --comments\`` : '`gh pr view --comments` if you can resolve it from the branch'}
+- Read the latest Jira comments from the task JSON
+- Review any \`githubReviewComments\` entries in the task JSON
+- Determine what is already fixed versus what still needs attention
+
+**Step 3 - Continue the implementation on the same branch**:
+- Address all unresolved GitHub review comments provided in \`githubReviewComments\`
+- Address any Jira follow-up comments that require more work
+- Verify the feature still behaves correctly end to end after your changes
+- Keep the existing branch and PR; do not create a replacement branch or PR
+
+**Step 4 - Run verification**:
+- Run the relevant tests for the changed area
+- If there are no focused tests, run the smallest meaningful validation you can explain clearly
+
+**Step 5 - Commit and push only if changes were required**:
+\`\`\`bash
+git add -A
+git commit -m "fix(${task.key}): address follow-up feedback"
+git push -u ${pushRemote} ${branchName}
+\`\`\`
+- Do not create an empty commit. If the implementation already satisfies the feedback, explain that clearly in your final report instead.
+
+**Step 6 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
+- \`jiranimo_progress\` — send progress updates as you work (task_key="${task.key}")
+- \`jiranimo_complete\` — when the existing branch is verified and updated as needed (task_key="${task.key}")
 - \`jiranimo_fail\` — if you hit an unrecoverable error (task_key="${task.key}")
 
 **Clean up the worktree**:

@@ -126,6 +126,9 @@
 .jiranimo-icon.completed { color: #36b37e; }
 .jiranimo-icon.completed:hover { color: #2d9f6f; }
 
+.jiranimo-icon.continue { color: #0052cc; }
+.jiranimo-icon.continue:hover { color: #1d6ff2; }
+
 .jiranimo-icon.failed { color: #de350b; }
 .jiranimo-icon.failed:hover { color: #ff5630; }
 

@@ -324,6 +324,54 @@ describe('POST /api/tasks/:key/fix-comments', () => {
   });
 });
 
+describe('POST /api/tasks/:key/continue-work', () => {
+  it('queues a continue-work run with the latest Jira comments on the existing branch', async () => {
+    const { fetchPendingGithubReviewComments } = await import('../github/review-comments.js');
+    store.upsertTask({
+      key: 'PROJ-CONTINUE',
+      summary: 'Needs follow-up work',
+      description: 'Original description',
+      priority: 'High',
+      issueType: 'Story',
+      labels: [],
+      comments: [],
+      jiraUrl: 'https://test.atlassian.net/browse/PROJ-CONTINUE',
+      status: 'completed',
+      taskMode: 'implement',
+      repoPath: '/tmp/existing-repo',
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prNumber: 42,
+      branchName: 'jiranimo/PROJ-CONTINUE-feature',
+      trackedBoards: ['test.atlassian.net:board-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.flushSync();
+
+    vi.mocked(fetchPendingGithubReviewComments).mockResolvedValueOnce([{
+      id: 101,
+      fingerprint: 'conversation:101:2026-04-03T10:00:00Z',
+      kind: 'conversation',
+      author: 'reviewer',
+      body: 'Please rename this helper',
+    }]);
+
+    const res = await request(app)
+      .post('/api/tasks/PROJ-CONTINUE/continue-work')
+      .send({
+        description: 'Updated description',
+        comments: [{ author: 'QA', body: 'Please verify the retry path', created: '2026-04-04T09:00:00Z' }],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.pendingGithubComments).toBe(1);
+    expect(res.body.task.key).toBe('PROJ-CONTINUE');
+    expect(res.body.task.taskMode).toBe('continue-work');
+    expect(res.body.task.previousTaskMode).toBe('implement');
+    expect(res.body.task.comments).toEqual([{ author: 'QA', body: 'Please verify the retry path', created: '2026-04-04T09:00:00Z' }]);
+  });
+});
+
 describe('POST /api/tasks/:key/cancel-resume', () => {
   it('cancels a pending resume', async () => {
     store.upsertTask({

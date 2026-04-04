@@ -1,5 +1,5 @@
 export type TaskStatus = 'queued' | 'in-progress' | 'interrupted' | 'completed' | 'failed';
-export type TaskMode = 'plan' | 'implement' | 'screenshot' | 'fix-comments';
+export type TaskMode = 'plan' | 'implement' | 'screenshot' | 'fix-comments' | 'continue-work';
 export type RecoveryState = 'none' | 'resume-pending' | 'resume-cancelled' | 'resuming';
 export type ResumeMode = 'claude-session' | 'fresh-recovery';
 export type EffectType = 'pipeline-status-sync' | 'completion-comment' | 'plan-comment' | 'repo-confirmation';

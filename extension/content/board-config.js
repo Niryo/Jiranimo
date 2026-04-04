@@ -17,7 +17,7 @@ const BoardConfig = {
     console.log('[Jiranimo] Loading board details from API...');
 
     const details = await this._fetchBoardDetails(boardId);
-    const columns = details.columns;
+    const columns = details.columns.map(column => column.name);
     const boardType = details.boardType || 'scrum';
     const projectKey = details.projectKey || this._extractProjectKey();
     console.log('[Jiranimo] Board details:', details);
@@ -86,6 +86,7 @@ const BoardConfig = {
         projectKey,
         boardType,
         transitions,
+        todoStatuses: this._inferTodoStatuses(details.columns, inProgressCol),
       };
 
       console.log('[Jiranimo] Saving board config:', JSON.stringify(config));
@@ -108,9 +109,16 @@ const BoardConfig = {
       ...config,
       projectKey: config.projectKey || details.projectKey || this._extractProjectKey(),
       boardType: config.boardType || details.boardType || 'scrum',
+      todoStatuses: Array.isArray(config.todoStatuses) && config.todoStatuses.length > 0
+        ? config.todoStatuses
+        : this._inferTodoStatuses(details.columns, config.transitions?.inProgress?.name),
     };
 
-    if (enriched.projectKey !== config.projectKey || enriched.boardType !== config.boardType) {
+    if (
+      enriched.projectKey !== config.projectKey
+      || enriched.boardType !== config.boardType
+      || JSON.stringify(enriched.todoStatuses || []) !== JSON.stringify(config.todoStatuses || [])
+    ) {
       await chrome.storage.local.set({ [`boardConfig_${boardId}`]: enriched });
     }
 
@@ -121,7 +129,7 @@ const BoardConfig = {
    * Fetch board metadata and columns from Jira Agile REST API.
    * Calls the APIs directly from the content script (session cookies are available).
    * @param {string} boardId
-   * @returns {Promise<{boardType: ('scrum'|'kanban'|null), projectKey: string, columns: string[]}>}
+   * @returns {Promise<{boardType: ('scrum'|'kanban'|null), projectKey: string, columns: Array<{name: string, statuses: string[]}>}>}
    */
   async _fetchBoardDetails(boardId) {
     const host = location.origin;
@@ -152,7 +160,10 @@ const BoardConfig = {
       let columns = [];
       if (configRes.ok) {
         const configData = await configRes.json();
-        columns = (configData.columnConfig?.columns || []).map(c => c.name);
+        columns = (configData.columnConfig?.columns || []).map(c => ({
+          name: c.name,
+          statuses: Array.isArray(c.statuses) ? c.statuses.map(status => status?.name).filter(name => typeof name === 'string') : [],
+        }));
       } else {
         console.warn('[Jiranimo] Board config API returned:', configRes.status);
       }
@@ -166,6 +177,30 @@ const BoardConfig = {
         columns: [],
       };
     }
+  },
+
+  /**
+   * Infer which Jira statuses should count as the board's To Do column.
+   * @param {Array<{name: string, statuses: string[]}>} columns
+   * @param {string | undefined} inProgressColumnName
+   * @returns {string[]}
+   */
+  _inferTodoStatuses(columns, inProgressColumnName) {
+    if (!Array.isArray(columns) || columns.length === 0) {
+      return [];
+    }
+
+    const normalizedInProgress = typeof inProgressColumnName === 'string' ? inProgressColumnName.trim().toLowerCase() : '';
+    const inProgressIndex = normalizedInProgress
+      ? columns.findIndex(column => column.name?.trim().toLowerCase() === normalizedInProgress)
+      : -1;
+    const todoColumns = inProgressIndex > 0 ? columns.slice(0, inProgressIndex) : [columns[0]];
+
+    return [...new Set(
+      todoColumns
+        .flatMap(column => Array.isArray(column.statuses) ? column.statuses : [])
+        .filter(status => typeof status === 'string' && status.trim().length > 0)
+    )];
   },
 
   /**

@@ -163,6 +163,62 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
     }
   });
 
+  router.post('/tasks/:key/continue-work', async (req: Request, res: Response) => {
+    const key = param(req.params.key);
+    try {
+      const result = await pipeline.continueTask(key, {
+        summary: typeof req.body?.summary === 'string' ? req.body.summary : undefined,
+        description: typeof req.body?.description === 'string' ? req.body.description : undefined,
+        acceptanceCriteria: typeof req.body?.acceptanceCriteria === 'string' ? req.body.acceptanceCriteria : undefined,
+        priority: typeof req.body?.priority === 'string' ? req.body.priority : undefined,
+        issueType: typeof req.body?.issueType === 'string' ? req.body.issueType : undefined,
+        labels: Array.isArray(req.body?.labels) ? req.body.labels.filter((label): label is string => typeof label === 'string') : undefined,
+        comments: Array.isArray(req.body?.comments) ? req.body.comments.filter((comment): comment is { author: string; body: string; created?: string } =>
+          !!comment
+          && typeof comment === 'object'
+          && typeof comment.author === 'string'
+          && typeof comment.body === 'string'
+          && (comment.created === undefined || typeof comment.created === 'string'),
+        ) : undefined,
+        subtasks: Array.isArray(req.body?.subtasks) ? req.body.subtasks.filter((subtask): subtask is { key: string; summary: string; status: string } =>
+          !!subtask
+          && typeof subtask === 'object'
+          && typeof subtask.key === 'string'
+          && typeof subtask.summary === 'string'
+          && typeof subtask.status === 'string',
+        ) : undefined,
+        linkedIssues: Array.isArray(req.body?.linkedIssues) ? req.body.linkedIssues.filter((issue): issue is { type: string; key: string; summary: string; status: string } =>
+          !!issue
+          && typeof issue === 'object'
+          && typeof issue.type === 'string'
+          && typeof issue.key === 'string'
+          && typeof issue.summary === 'string'
+          && typeof issue.status === 'string',
+        ) : undefined,
+        attachments: Array.isArray(req.body?.attachments) ? req.body.attachments.filter((attachment): attachment is { filename: string; mimeType: string; url: string } =>
+          !!attachment
+          && typeof attachment === 'object'
+          && typeof attachment.filename === 'string'
+          && typeof attachment.mimeType === 'string'
+          && typeof attachment.url === 'string',
+        ) : undefined,
+        assignee: typeof req.body?.assignee === 'string' ? req.body.assignee : undefined,
+        reporter: typeof req.body?.reporter === 'string' ? req.body.reporter : undefined,
+        components: Array.isArray(req.body?.components) ? req.body.components.filter((component): component is string => typeof component === 'string') : undefined,
+        parentKey: typeof req.body?.parentKey === 'string' ? req.body.parentKey : undefined,
+        jiraUrl: typeof req.body?.jiraUrl === 'string' ? req.body.jiraUrl : undefined,
+      });
+      res.json(result);
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(400).json({ error: message });
+      }
+    }
+  });
+
   router.post('/tasks/:key/cancel-resume', (req: Request, res: Response) => {
     try {
       const task = pipeline.cancelResume(param(req.params.key));
