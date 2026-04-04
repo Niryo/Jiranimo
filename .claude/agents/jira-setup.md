@@ -1,6 +1,6 @@
 ---
 name: jira-setup
-description: Set up the test Jira site (niryosef89.atlassian.net) with the JTEST project, board, and sprint for E2E testing.
+description: Set up the test Jira site (jiranimo.atlassian.net) with the JTEST project, board, and sprint for E2E testing.
 model: sonnet
 tools: Bash, Read, Grep
 ---
