@@ -223,59 +223,32 @@ describe('StateStore', () => {
     store.destroy();
   });
 
-  it('reconciles board presence and stores board snapshots', () => {
+  it('prunes tasks older than the retention cutoff', () => {
+    writeFileSync(statePath, JSON.stringify({
+      meta: { serverEpoch: 0, revision: 0 },
+      tasks: {
+        'PROJ-OLD': makeTask({
+          key: 'PROJ-OLD',
+          createdAt: '2025-01-01T00:00:00.000Z',
+          updatedAt: '2025-01-15T00:00:00.000Z',
+        }),
+        'PROJ-RECENT': makeTask({
+          key: 'PROJ-RECENT',
+          createdAt: '2026-03-01T00:00:00.000Z',
+          updatedAt: '2026-03-20T00:00:00.000Z',
+        }),
+      },
+      queue: [],
+      effects: {},
+    }));
+
     const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
-    store.upsertTask(makeTask({ trackedBoards: ['test.atlassian.net:board-1'] }));
 
-    const result = store.reconcileBoardPresence({
-      boardId: 'board-1',
-      jiraHost: 'test.atlassian.net',
-      boardType: 'scrum',
-      projectKey: 'PROJ',
-      issueKeys: ['PROJ-1'],
-    });
+    const deletedTaskKeys = store.pruneTasksOlderThan(new Date('2026-01-05T00:00:00.000Z'));
 
-    expect(result.deletedTaskKeys).toEqual([]);
-    expect(store.getTask('PROJ-1')?.trackedBoards).toEqual(['test.atlassian.net:board-1']);
-    expect(store.getTask('PROJ-1')?.lastSeenOnBoardAt).toBeDefined();
-    expect(store.getBoardSnapshots('test.atlassian.net')).toHaveLength(1);
-    store.destroy();
-  });
-
-  it('removes tasks when their last tracked board no longer contains them', () => {
-    const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
-    store.upsertTask(makeTask({ trackedBoards: ['test.atlassian.net:board-1'] }));
-
-    const result = store.reconcileBoardPresence({
-      boardId: 'board-1',
-      jiraHost: 'test.atlassian.net',
-      boardType: 'scrum',
-      projectKey: 'PROJ',
-      issueKeys: [],
-      isCompleteSnapshot: true,
-    });
-
-    expect(result.deletedTaskKeys).toEqual(['PROJ-1']);
-    expect(store.getTask('PROJ-1')).toBeUndefined();
-    store.destroy();
-  });
-
-  it('does not delete tasks from incomplete board presence snapshots', () => {
-    const store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
-    store.upsertTask(makeTask({ trackedBoards: ['test.atlassian.net:board-1'] }));
-
-    const result = store.reconcileBoardPresence({
-      boardId: 'board-1',
-      jiraHost: 'test.atlassian.net',
-      boardType: 'scrum',
-      projectKey: 'PROJ',
-      issueKeys: [],
-      isCompleteSnapshot: false,
-    });
-
-    expect(result.deletedTaskKeys).toEqual([]);
-    expect(store.getTask('PROJ-1')).toBeDefined();
-    expect(store.getTask('PROJ-1')?.trackedBoards).toEqual(['test.atlassian.net:board-1']);
+    expect(deletedTaskKeys).toEqual(['PROJ-OLD']);
+    expect(store.getTask('PROJ-OLD')).toBeUndefined();
+    expect(store.getTask('PROJ-RECENT')).toBeDefined();
     store.destroy();
   });
 });

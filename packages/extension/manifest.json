@@ -18,12 +18,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*.atlassian.net/jira/software/projects/*",
-        "https://*.atlassian.net/jira/software/projects/*/*",
-        "https://*.atlassian.net/jira/software/projects/*/boards/*",
-        "https://*.atlassian.net/jira/software/c/projects/*",
-        "https://*.atlassian.net/jira/software/c/projects/*/*",
-        "https://*.atlassian.net/jira/software/c/projects/*/boards/*"
+        "https://*.atlassian.net/jira/software/*boards*"
       ],
       "js": [
         "lib/adf-to-markdown.js",

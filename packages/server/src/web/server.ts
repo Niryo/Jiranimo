@@ -1,14 +1,10 @@
 import express from 'express';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { PipelineManager } from '../pipeline/manager.js';
 import type { StateStore } from '../state/store.js';
 import { createApiRouter } from './api-routes.js';
 import { createMcpHandler } from '../mcp/server.js';
 import type { ServerConfig } from '../config/types.js';
 import { createLogger, resolveLoggingConfig } from '../logging/logger.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export function createApp(store: StateStore, pipeline: PipelineManager, config?: Pick<ServerConfig, 'logsDir' | 'logging'>) {
   const app = express();
@@ -61,9 +57,6 @@ export function createApp(store: StateStore, pipeline: PipelineManager, config?:
 
   // API routes
   app.use('/api', createApiRouter(store, pipeline));
-
-  // Serve static dashboard
-  app.use(express.static(resolve(__dirname, 'public')));
 
   return app;
 }

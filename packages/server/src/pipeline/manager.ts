@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
 import type { ServerConfig } from '../config/types.js';
-import type { TaskRecord, TaskStatus, EffectRecord, JiraBoardType } from '../state/types.js';
+import type { TaskRecord, TaskStatus, EffectRecord } from '../state/types.js';
 import type { ClaudeEvent, ExecutionResult, TaskInput } from '../claude/types.js';
 import { StateStore, boardTrackingKey } from '../state/store.js';
 import { transition } from './state-machine.js';
@@ -22,6 +22,8 @@ import { generateCompactLog } from '../claude/compact-log-generator.js';
 const RESUME_GRACE_MS = 15_000;
 const EFFECT_CLAIM_LEASE_MS = 30_000;
 const DEFAULT_REPO_CONFIRMATION_TIMEOUT_MS = 10_000;
+const TASK_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const TASK_RETENTION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const WORKSPACE_ROOT = resolve(tmpdir(), 'jiranimo-workspaces');
 
 type RepoConfirmationResolution =
@@ -72,6 +74,7 @@ export class PipelineManager extends EventEmitter {
   private activeChildren = new Map<string, ChildProcess>();
   private resumeTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private pendingRepoConfirmations = new Map<string, PendingRepoConfirmation>();
+  private retentionSweepTimer: ReturnType<typeof setInterval> | null = null;
   private logger: Logger;
   private loggingConfig: ReturnType<typeof resolveLoggingConfig>;
 
@@ -84,6 +87,10 @@ export class PipelineManager extends EventEmitter {
     this.loggingConfig = resolveLoggingConfig(config);
     this.clearStaleRepoConfirmationEffects();
     this.recoverOnStartup();
+    this.pruneExpiredTasks();
+    this.retentionSweepTimer = setInterval(() => {
+      this.pruneExpiredTasks();
+    }, TASK_RETENTION_SWEEP_INTERVAL_MS);
     setImmediate(() => this.processQueue());
   }
 
@@ -281,25 +288,6 @@ export class PipelineManager extends EventEmitter {
     return { task: updated, pendingGithubComments: githubReviewComments.length };
   }
 
-  syncBoardPresence(input: {
-    boardId: string;
-    jiraHost: string;
-    boardType: JiraBoardType;
-    projectKey?: string;
-    issueKeys: string[];
-    isCompleteSnapshot?: boolean;
-  }): {
-    boardKey: string;
-    syncedAt: string;
-    deletedTaskKeys: string[];
-    updatedTaskKeys: string[];
-  } {
-    const result = this.store.reconcileBoardPresence(input);
-    this.store.flushSync();
-    this.emitSyncNeeded();
-    return result;
-  }
-
   retryTask(key: string): TaskRecord {
     const task = this.store.getTask(key);
     if (!task) throw new Error(`Task ${key} not found`);
@@ -423,6 +411,11 @@ export class PipelineManager extends EventEmitter {
   }
 
   shutdown(): void {
+    if (this.retentionSweepTimer) {
+      clearInterval(this.retentionSweepTimer);
+      this.retentionSweepTimer = null;
+    }
+
     for (const [key, pending] of this.pendingRepoConfirmations.entries()) {
       clearTimeout(pending.timeout);
       this.pendingRepoConfirmations.delete(key);
@@ -524,6 +517,17 @@ export class PipelineManager extends EventEmitter {
     if (!timer) return;
     clearTimeout(timer);
     this.resumeTimers.delete(key);
+  }
+
+  private pruneExpiredTasks(now = new Date()): string[] {
+    const cutoff = new Date(now.getTime() - TASK_RETENTION_MS);
+    const deletedTaskKeys = this.store.pruneTasksOlderThan(cutoff);
+    if (deletedTaskKeys.length > 0) {
+      this.store.flushSync();
+      this.logger.info('Pruned expired tasks from local state', { deletedTaskKeys, cutoff: cutoff.toISOString() });
+      this.emitSyncNeeded();
+    }
+    return deletedTaskKeys;
   }
 
   private clearPendingRepoConfirmation(key: string, resolution?: RepoConfirmationResolution): void {

@@ -87,16 +87,6 @@ export interface TaskRecord {
   completedAt?: string;
 }
 
-export interface BoardPresenceSnapshot {
-  boardId: string;
-  jiraHost: string;
-  boardType: JiraBoardType;
-  projectKey?: string;
-  issueKeys: string[];
-  isCompleteSnapshot?: boolean;
-  syncedAt: string;
-}
-
 export interface AppMeta {
   serverEpoch: number;
   revision: number;
@@ -107,5 +97,4 @@ export interface AppState {
   tasks: Record<string, TaskRecord>;
   queue: string[];
   effects: Record<string, EffectRecord>;
-  boards: Record<string, BoardPresenceSnapshot>;
 }

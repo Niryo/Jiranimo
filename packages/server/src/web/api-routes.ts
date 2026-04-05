@@ -72,32 +72,6 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
     res.json(pipeline.getSyncSnapshot(jiraHost));
   });
 
-  router.put('/boards/:boardId/presence', (req: Request, res: Response) => {
-    const boardId = param(req.params.boardId);
-    const jiraHost = req.body?.jiraHost;
-    const boardType = req.body?.boardType;
-    const issueKeys = req.body?.issueKeys;
-
-    if (!boardId || typeof jiraHost !== 'string' || !isBoardType(boardType) || !Array.isArray(issueKeys)) {
-      res.status(400).json({ error: 'Missing required fields: jiraHost, boardType, issueKeys' });
-      return;
-    }
-
-    try {
-      const result = pipeline.syncBoardPresence({
-        boardId,
-        jiraHost,
-        boardType,
-        projectKey: typeof req.body?.projectKey === 'string' ? req.body.projectKey : undefined,
-        issueKeys: issueKeys.filter((issueKey): issueKey is string => typeof issueKey === 'string'),
-        isCompleteSnapshot: req.body?.isCompleteSnapshot === true,
-      });
-      res.json(result);
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
   // GET /api/tasks/:key — get single task
   router.get('/tasks/:key', (req: Request, res: Response) => {
     const key = param(req.params.key);

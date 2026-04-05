@@ -79,12 +79,19 @@ connectForAutoReload();
 // The background service worker has extension origin and can access localhost freely.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'server-fetch') {
+    const responseType = msg.responseType === 'text' ? 'text' : 'json';
     fetch(serverUrl + msg.path, {
       method: msg.method || 'GET',
       headers: msg.body ? { 'Content-Type': 'application/json' } : undefined,
       body: msg.body ? JSON.stringify(msg.body) : undefined,
     })
       .then(async res => {
+        if (responseType === 'text') {
+          const text = await res.text().catch(() => '');
+          sendResponse({ ok: res.ok, status: res.status, text });
+          return;
+        }
+
         const data = await res.json().catch(() => ({}));
         sendResponse({ ok: res.ok, status: res.status, data });
       })

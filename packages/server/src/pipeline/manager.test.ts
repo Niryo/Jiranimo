@@ -907,68 +907,35 @@ describe('PipelineManager', () => {
     store.destroy();
   });
 
-  it('keeps completed tasks while a tracked board still reports them present', async () => {
-    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
-    mgr.submitTask(sampleInput);
-    await new Promise(r => setTimeout(r, 200));
-
-    const result = mgr.syncBoardPresence({
-      boardId: 'board-1',
-      jiraHost: 'test.atlassian.net',
-      boardType: 'scrum',
-      projectKey: 'PROJ',
-      issueKeys: ['PROJ-1'],
-    });
-
-    expect(result.deletedTaskKeys).toEqual([]);
-    expect(store.getTask('PROJ-1')?.status).toBe('completed');
-    expect(store.getTask('PROJ-1')?.trackedBoards).toContain('test.atlassian.net:board-1');
-    mgr.shutdown();
+  it('prunes tasks older than the retention window during startup', () => {
+    const statePath = join(tmpDir, 'state.json');
     store.destroy();
-  });
+    writeFileSync(statePath, JSON.stringify({
+      meta: { serverEpoch: 0, revision: 0 },
+      tasks: {
+        'PROJ-OLD': {
+          key: 'PROJ-OLD',
+          summary: 'Old task',
+          description: 'Old task',
+          priority: 'High',
+          issueType: 'Story',
+          labels: [],
+          jiraUrl: 'https://test.atlassian.net/browse/PROJ-OLD',
+          status: 'completed',
+          trackedBoards: ['test.atlassian.net:board-1'],
+          createdAt: '2025-01-01T00:00:00.000Z',
+          updatedAt: '2025-01-05T00:00:00.000Z',
+          completedAt: '2025-01-05T00:00:00.000Z',
+        },
+      },
+      queue: [],
+      effects: {},
+    }));
+    store = new StateStore({ filePath: statePath, flushDelayMs: 0 });
 
-  it('deletes a task when its last tracked board no longer reports it', () => {
     const mgr = new PipelineManager(store, testConfig, repoRootTarget);
-    mgr.submitTask(sampleInput);
 
-    const result = mgr.syncBoardPresence({
-      boardId: 'board-1',
-      jiraHost: 'test.atlassian.net',
-      boardType: 'scrum',
-      projectKey: 'PROJ',
-      issueKeys: [],
-      isCompleteSnapshot: true,
-    });
-
-    expect(result.deletedTaskKeys).toEqual(['PROJ-1']);
-    expect(store.getTask('PROJ-1')).toBeUndefined();
-    mgr.shutdown();
-    store.destroy();
-  });
-
-  it('retains a task if another tracked board still reports it present', () => {
-    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
-    mgr.submitTask(sampleInput);
-
-    mgr.syncBoardPresence({
-      boardId: 'board-2',
-      jiraHost: 'test.atlassian.net',
-      boardType: 'kanban',
-      projectKey: 'PROJ',
-      issueKeys: ['PROJ-1'],
-    });
-
-    const result = mgr.syncBoardPresence({
-      boardId: 'board-1',
-      jiraHost: 'test.atlassian.net',
-      boardType: 'scrum',
-      projectKey: 'PROJ',
-      issueKeys: [],
-      isCompleteSnapshot: true,
-    });
-
-    expect(result.deletedTaskKeys).toEqual([]);
-    expect(store.getTask('PROJ-1')?.trackedBoards).toEqual(['test.atlassian.net:board-2']);
+    expect(store.getTask('PROJ-OLD')).toBeUndefined();
     mgr.shutdown();
     store.destroy();
   });

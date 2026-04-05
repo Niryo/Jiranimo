@@ -50,7 +50,7 @@ fi
 
 JIRA_HOST="${JIRA_HOST:-}"
 SERVER_PORT=3456
-DASHBOARD_URL="http://127.0.0.1:$SERVER_PORT"
+SERVER_URL="http://127.0.0.1:$SERVER_PORT"
 CHROME_PROFILE_DIR="$PROJECT_ROOT/.chrome-dev-profile"
 PID_FILE="$PROJECT_ROOT/.dev-pids"
 RUNTIME_LOG_DIR="${JIRANIMO_LOG_DIR:-$HOME/.jiranimo/logs}"
@@ -98,7 +98,7 @@ echo "$SERVER_PID" > "$PID_FILE"
 # Wait for server to be ready
 echo "[dev] Waiting for server..."
 for i in $(seq 1 30); do
-  if curl -s "$DASHBOARD_URL/api/tasks" > /dev/null 2>&1; then
+  if curl -s "$SERVER_URL/api/tasks" > /dev/null 2>&1; then
     echo "[dev] Server is ready on port $SERVER_PORT"
     break
   fi
@@ -127,7 +127,6 @@ if [ -f "$CHROME_APP" ]; then
     --load-extension="$EXTENSION_DIR" \
     --no-first-run \
     --no-default-browser-check \
-    "$DASHBOARD_URL" \
     ${JIRA_BOARD_URL:+"$JIRA_BOARD_URL"} \
     >> "$CHROME_LOG_FILE" 2>&1 &
   CHROME_PID=$!
@@ -135,7 +134,6 @@ if [ -f "$CHROME_APP" ]; then
   echo "[dev] Chrome launched (profile: $CHROME_PROFILE_DIR)"
 else
   echo "[dev] Chrome not found. Open manually:"
-  echo "  Dashboard: $DASHBOARD_URL"
   [ -n "$JIRA_BOARD_URL" ] && echo "  Jira: $JIRA_BOARD_URL"
 fi
 

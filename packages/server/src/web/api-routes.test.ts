@@ -81,6 +81,13 @@ describe('CORS', () => {
   });
 });
 
+describe('server root', () => {
+  it('does not expose the removed dashboard UI', async () => {
+    const res = await request(app).get('/');
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('POST /api/tasks', () => {
   it('creates a task and returns 201', async () => {
     const res = await request(app).post('/api/tasks').send(validTask);
@@ -412,64 +419,6 @@ describe('Effects APIs', () => {
     const ackRes = await request(app).post('/api/effects/missing-effect/ack');
     expect(ackRes.status).toBe(200);
     expect(ackRes.body.acked).toBe(false);
-  });
-});
-
-describe('PUT /api/boards/:boardId/presence', () => {
-  it('stores board presence and updates tracked boards for matching tasks', async () => {
-    await request(app).post('/api/tasks').send(validTask);
-
-    const res = await request(app)
-      .put('/api/boards/board-2/presence')
-      .send({
-        jiraHost: 'test.atlassian.net',
-        boardType: 'kanban',
-        projectKey: 'PROJ',
-        issueKeys: ['PROJ-1'],
-        isCompleteSnapshot: true,
-      });
-
-    expect(res.status).toBe(200);
-    expect(res.body.deletedTaskKeys).toEqual([]);
-    expect(store.getTask('PROJ-1')?.trackedBoards).toEqual([
-      'test.atlassian.net:board-1',
-      'test.atlassian.net:board-2',
-    ]);
-  });
-
-  it('deletes a task when its last tracked board reports it absent', async () => {
-    await request(app).post('/api/tasks').send(validTask);
-
-    const res = await request(app)
-      .put('/api/boards/board-1/presence')
-      .send({
-        jiraHost: 'test.atlassian.net',
-        boardType: 'scrum',
-        projectKey: 'PROJ',
-        issueKeys: [],
-        isCompleteSnapshot: true,
-      });
-
-    expect(res.status).toBe(200);
-    expect(res.body.deletedTaskKeys).toEqual(['PROJ-1']);
-    expect(store.getTask('PROJ-1')).toBeUndefined();
-  });
-
-  it('does not delete a task from a non-authoritative presence update', async () => {
-    await request(app).post('/api/tasks').send(validTask);
-
-    const res = await request(app)
-      .put('/api/boards/board-1/presence')
-      .send({
-        jiraHost: 'test.atlassian.net',
-        boardType: 'scrum',
-        projectKey: 'PROJ',
-        issueKeys: [],
-      });
-
-    expect(res.status).toBe(200);
-    expect(res.body.deletedTaskKeys).toEqual([]);
-    expect(store.getTask('PROJ-1')).toBeDefined();
   });
 });
 
