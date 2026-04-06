@@ -44,9 +44,6 @@ const validTask = {
   issueType: 'Story',
   labels: ['ai-ready'],
   jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-  boardId: 'board-1',
-  boardType: 'scrum',
-  projectKey: 'PROJ',
 };
 
 let tmpDir: string;
@@ -106,7 +103,7 @@ describe('POST /api/tasks', () => {
     store.upsertTask({
       key: 'PROJ-1', summary: 'Test', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-      status: 'queued', trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'queued', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
 
@@ -170,7 +167,7 @@ describe('DELETE /api/tasks/:key', () => {
     store.upsertTask({
       key: 'PROJ-1', summary: 'Delete me', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-      status: 'completed', trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'completed', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
 
@@ -199,7 +196,7 @@ describe('POST /api/tasks/:key/retry', () => {
     store.upsertTask({
       key: 'PROJ-1', summary: 'Test', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-      status: 'queued', trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'queued', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
 
@@ -307,7 +304,6 @@ describe('POST /api/tasks/:key/fix-comments', () => {
       prUrl: 'https://github.com/org/repo/pull/42',
       prNumber: 42,
       branchName: 'jiranimo/PROJ-REVIEW-feature',
-      trackedBoards: ['test.atlassian.net:board-1'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -349,7 +345,6 @@ describe('POST /api/tasks/:key/continue-work', () => {
       prUrl: 'https://github.com/org/repo/pull/42',
       prNumber: 42,
       branchName: 'jiranimo/PROJ-CONTINUE-feature',
-      trackedBoards: ['test.atlassian.net:board-1'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -384,7 +379,7 @@ describe('POST /api/tasks/:key/cancel-resume', () => {
     store.upsertTask({
       key: 'PROJ-INT', summary: 'Interrupted', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-INT',
-      status: 'interrupted', trackedBoards: ['test.atlassian.net:board-1'], recoveryState: 'resume-pending', resumeAfter: new Date(Date.now() + 30_000).toISOString(),
+      status: 'interrupted', recoveryState: 'resume-pending', resumeAfter: new Date(Date.now() + 30_000).toISOString(),
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
@@ -432,7 +427,7 @@ describe('GET /api/tasks/:key/logs', () => {
     store.upsertTask({
       key: 'PROJ-2', summary: 'No logs', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [], jiraUrl: 'https://test.atlassian.net/browse/PROJ-2',
-      status: 'queued', trackedBoards: ['test.atlassian.net:board-1'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'queued', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     store.flushSync();
 

@@ -63,12 +63,13 @@ describe('pickRepo', () => {
 
     mockExecute.mockResolvedValue({ success: true, resultText: 'web-app', durationMs: 100 });
 
-    const result = await pickRepo(root, baseTask);
+    const result = await pickRepo(root, baseTask, { command: 'my-claude' });
 
     expect(result).toBe(join(root, 'web-app'));
     expect(mockExecute).toHaveBeenCalledOnce();
-    const callArgs = mockExecute.mock.calls[0][0] as { prompt: string; config: { model: string } };
+    const callArgs = mockExecute.mock.calls[0][0] as { prompt: string; config: { model: string; command?: string } };
     expect(callArgs.config.model).toBe('claude-sonnet-4-6');
+    expect(callArgs.config.command).toBe('my-claude');
     expect(callArgs.prompt).toContain('PROJ-1');
     expect(callArgs.prompt).toContain('web-app');
   });

@@ -107,9 +107,6 @@ describe('WebSocket handler', () => {
       labels: [],
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-      boardId: 'board-1',
-      boardType: 'scrum',
-      projectKey: 'PROJ',
     });
 
     const msgs = await msgPromise;
@@ -132,9 +129,6 @@ describe('WebSocket handler', () => {
       labels: [],
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-2',
-      boardId: 'board-1',
-      boardType: 'scrum',
-      projectKey: 'PROJ',
     });
 
     const msgs = await msgsPromise;

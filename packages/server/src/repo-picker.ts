@@ -2,6 +2,7 @@ import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { executeClaudeCode } from './claude/executor.js';
+import type { ClaudeConfig } from './config/types.js';
 
 interface TaskSummary {
   key: string;
@@ -60,7 +61,7 @@ function normalizeRepoName(rawName: string): string {
   return rawName.replace(/^[-\s]+/, '').split(/[\s/]/)[0];
 }
 
-export async function pickRepo(reposRoot: string, task: TaskSummary): Promise<string> {
+export async function pickRepo(reposRoot: string, task: TaskSummary, claudeConfig?: ClaudeConfig): Promise<string> {
   const repos = listRepos(reposRoot);
 
   if (repos.length === 0) {
@@ -91,7 +92,7 @@ ${repoList}`;
   const result = await executeClaudeCode({
     prompt,
     cwd: tmpdir(),
-    config: { model: 'claude-sonnet-4-6' },
+    config: { ...claudeConfig, model: 'claude-sonnet-4-6' },
   });
 
   if (!result.success || !result.resultText) {

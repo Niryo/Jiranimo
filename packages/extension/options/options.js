@@ -8,19 +8,17 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadSettings() {
-  const settings = await chrome.storage.local.get(['jiraHost', 'serverUrl']);
+  const settings = await chrome.storage.local.get(['serverUrl']);
 
-  document.getElementById('jira-host').value = settings.jiraHost || '';
   document.getElementById('server-url').value = settings.serverUrl || 'http://localhost:3456';
 
   loadBoardConfigs();
 }
 
 async function saveSettings() {
-  const jiraHost = document.getElementById('jira-host').value.trim();
   const serverUrl = document.getElementById('server-url').value.trim() || 'http://localhost:3456';
 
-  await chrome.storage.local.set({ jiraHost, serverUrl });
+  await chrome.storage.local.set({ serverUrl });
 
   const msg = document.getElementById('saved-msg');
   msg.style.display = 'inline';
@@ -45,7 +43,7 @@ async function loadBoardConfigs() {
     item.className = 'board-item';
     item.innerHTML = `
       <div>
-        <strong>Board ${config.boardId}</strong> (${config.projectKey || '?'})
+        <strong>Board ${config.boardId || key.replace('boardConfig_', '')}</strong>
       </div>
       <button data-key="${key}">Remove</button>
     `;

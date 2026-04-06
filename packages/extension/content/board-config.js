@@ -18,8 +18,6 @@ const BoardConfig = {
 
     const details = await this._fetchBoardDetails(boardId);
     const columns = details.columns.map(column => column.name);
-    const boardType = details.boardType || 'scrum';
-    const projectKey = details.projectKey || this._extractProjectKey();
     console.log('[Jiranimo] Board details:', details);
 
     if (columns.length === 0) {
@@ -83,8 +81,6 @@ const BoardConfig = {
 
       const config = {
         boardId,
-        projectKey,
-        boardType,
         transitions,
         todoStatuses: this._inferTodoStatuses(details.columns, inProgressCol),
       };
@@ -98,7 +94,7 @@ const BoardConfig = {
   },
 
   /**
-   * Ensure older saved configs have the metadata needed for board presence sync.
+   * Ensure older saved configs include inferred todo statuses.
    * @param {string} boardId
    * @param {Record<string, unknown>} config
    * @returns {Promise<Record<string, unknown>>}
@@ -107,18 +103,12 @@ const BoardConfig = {
     const details = await this._fetchBoardDetails(boardId);
     const enriched = {
       ...config,
-      projectKey: config.projectKey || details.projectKey || this._extractProjectKey(),
-      boardType: config.boardType || details.boardType || 'scrum',
       todoStatuses: Array.isArray(config.todoStatuses) && config.todoStatuses.length > 0
         ? config.todoStatuses
         : this._inferTodoStatuses(details.columns, config.transitions?.inProgress?.name),
     };
 
-    if (
-      enriched.projectKey !== config.projectKey
-      || enriched.boardType !== config.boardType
-      || JSON.stringify(enriched.todoStatuses || []) !== JSON.stringify(config.todoStatuses || [])
-    ) {
+    if (JSON.stringify(enriched.todoStatuses || []) !== JSON.stringify(config.todoStatuses || [])) {
       await chrome.storage.local.set({ [`boardConfig_${boardId}`]: enriched });
     }
 
@@ -129,34 +119,15 @@ const BoardConfig = {
    * Fetch board metadata and columns from Jira Agile REST API.
    * Calls the APIs directly from the content script (session cookies are available).
    * @param {string} boardId
-   * @returns {Promise<{boardType: ('scrum'|'kanban'|null), projectKey: string, columns: Array<{name: string, statuses: string[]}>}>}
+   * @returns {Promise<{columns: Array<{name: string, statuses: string[]}>}>}
    */
   async _fetchBoardDetails(boardId) {
-    const host = location.origin;
-    const boardUrl = `${host}/rest/agile/1.0/board/${boardId}`;
-    const configUrl = `${host}/rest/agile/1.0/board/${boardId}/configuration`;
+    const configUrl = `${location.origin}/rest/agile/1.0/board/${boardId}/configuration`;
 
     try {
-      console.log('[Jiranimo] Fetching board metadata from:', boardUrl);
       console.log('[Jiranimo] Fetching board configuration from:', configUrl);
 
-      const [boardRes, configRes] = await Promise.all([
-        fetch(boardUrl, { credentials: 'include' }),
-        fetch(configUrl, { credentials: 'include' }),
-      ]);
-
-      let boardType = null;
-      let projectKey = this._extractProjectKey();
-      if (boardRes.ok) {
-        const boardData = await boardRes.json();
-        if (boardData.type === 'scrum' || boardData.type === 'kanban') {
-          boardType = boardData.type;
-        }
-        projectKey = boardData.location?.projectKey || projectKey;
-      } else {
-        console.warn('[Jiranimo] Board metadata API returned:', boardRes.status);
-      }
-
+      const configRes = await fetch(configUrl, { credentials: 'include' });
       let columns = [];
       if (configRes.ok) {
         const configData = await configRes.json();
@@ -168,14 +139,10 @@ const BoardConfig = {
         console.warn('[Jiranimo] Board config API returned:', configRes.status);
       }
 
-      return { boardType, projectKey, columns };
+      return { columns };
     } catch (err) {
       console.warn('[Jiranimo] Failed to fetch board details:', err);
-      return {
-        boardType: null,
-        projectKey: this._extractProjectKey(),
-        columns: [],
-      };
+      return { columns: [] };
     }
   },
 
@@ -256,15 +223,6 @@ const BoardConfig = {
     }
     const match = document.body.textContent?.match(keyPattern);
     return match ? match[0] : null;
-  },
-
-  /**
-   * Extract project key from the URL.
-   * @returns {string}
-   */
-  _extractProjectKey() {
-    const match = location.pathname.match(/\/projects\/([^/]+)/);
-    return match ? match[1] : '';
   },
 };
 

@@ -2,12 +2,16 @@ import { tmpdir } from 'node:os';
 import { executeClaudeCode } from './executor.js';
 import type { TaskMode } from '../state/types.js';
 import type { TaskInput } from './types.js';
+import type { ClaudeConfig } from '../config/types.js';
 
 function normalizeMode(text: string | undefined, fallback: TaskMode = 'plan'): TaskMode {
   return text?.trim().toLowerCase().startsWith('implement') ? 'implement' : fallback;
 }
 
-export async function classifyTask(task: Pick<TaskInput, 'key' | 'summary' | 'description'>): Promise<TaskMode> {
+export async function classifyTask(
+  task: Pick<TaskInput, 'key' | 'summary' | 'description'>,
+  claudeConfig?: ClaudeConfig,
+): Promise<TaskMode> {
   const description = task.description?.slice(0, 800) ?? '';
 
   const prompt = `Classify this Jira task as either a planning/design task or an implementation task.
@@ -22,7 +26,7 @@ Respond with ONLY one word: "plan" or "implement".
   const result = await executeClaudeCode({
     prompt,
     cwd: tmpdir(),
-    config: { model: 'claude-haiku-4-5-20251001' },
+    config: { ...claudeConfig, model: 'claude-haiku-4-5-20251001' },
   });
 
   return result.resultText?.trim().toLowerCase().startsWith('plan') ? 'plan' : 'implement';
@@ -30,6 +34,7 @@ Respond with ONLY one word: "plan" or "implement".
 
 export async function decidePlannedTaskNextMode(
   task: Pick<TaskInput, 'key' | 'summary' | 'description' | 'comments'> & { planContent?: string },
+  claudeConfig?: ClaudeConfig,
 ): Promise<TaskMode> {
   const description = task.description?.slice(0, 1_200) ?? '';
   const planContent = task.planContent?.slice(0, 4_000) ?? '';
@@ -59,7 +64,7 @@ Be conservative: if the comments are ambiguous, respond "plan".`;
   const result = await executeClaudeCode({
     prompt,
     cwd: tmpdir(),
-    config: { model: 'claude-haiku-4-5-20251001' },
+    config: { ...claudeConfig, model: 'claude-haiku-4-5-20251001' },
   });
 
   return normalizeMode(result.resultText, 'plan');
@@ -67,10 +72,11 @@ Be conservative: if the comments are ambiguous, respond "plan".`;
 
 export async function resolveTaskMode(
   task: Pick<TaskInput, 'key' | 'summary' | 'description' | 'comments'> & { previousTaskMode?: TaskMode; planContent?: string },
+  claudeConfig?: ClaudeConfig,
 ): Promise<TaskMode> {
   if (task.previousTaskMode === 'plan') {
-    return decidePlannedTaskNextMode(task);
+    return decidePlannedTaskNextMode(task, claudeConfig);
   }
 
-  return classifyTask(task);
+  return classifyTask(task, claudeConfig);
 }

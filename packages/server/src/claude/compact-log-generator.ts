@@ -23,7 +23,7 @@ export async function generateCompactLog(
   }
 
   const prompt = [
-    'You are summarizing an AI agent execution log for a developer dashboard.',
+    'You are summarizing an AI agent execution log for a developer following task progress.',
     `Task: "${taskSummary}"`,
     '',
     'Write a concise but sufficiently detailed summary that covers:',

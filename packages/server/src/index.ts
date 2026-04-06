@@ -31,7 +31,7 @@ async function main() {
   const server = createServer(app);
   const wsHandler = attachWebSocket(server, pipeline);
 
-  const extensionReloadEnabled = startExtensionWatcher(wsHandler, logger.child('extension'));
+  startExtensionWatcher(wsHandler, logger.child('extension'));
 
   server.listen(config.web.port, config.web.host, () => {
     const addr = `http://${config.web.host}:${config.web.port}`;

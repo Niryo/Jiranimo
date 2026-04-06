@@ -2,14 +2,9 @@ import { Router, type Request, type Response } from 'express';
 import { readFileSync } from 'node:fs';
 import type { PipelineManager } from '../pipeline/manager.js';
 import type { StateStore } from '../state/store.js';
-import type { JiraBoardType } from '../state/types.js';
 
 function param(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] : (value ?? '');
-}
-
-function isBoardType(value: unknown): value is JiraBoardType {
-  return value === 'scrum' || value === 'kanban';
 }
 
 function isRepoConfirmationAction(value: unknown): value is 'confirm' | 'change' | 'cancel' | 'pause' {
@@ -23,8 +18,8 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
   router.post('/tasks', (req: Request, res: Response) => {
     const body = req.body;
 
-    if (!body.key || !body.summary || !body.priority || !body.issueType || !body.jiraUrl || !body.boardId || !isBoardType(body.boardType)) {
-      res.status(400).json({ error: 'Missing required fields: key, summary, priority, issueType, jiraUrl, boardId, boardType' });
+    if (!body.key || !body.summary || !body.priority || !body.issueType || !body.jiraUrl) {
+      res.status(400).json({ error: 'Missing required fields: key, summary, priority, issueType, jiraUrl' });
       return;
     }
 
@@ -46,9 +41,6 @@ export function createApiRouter(store: StateStore, pipeline: PipelineManager): R
         components: body.components,
         parentKey: body.parentKey,
         jiraUrl: body.jiraUrl,
-        boardId: body.boardId,
-        boardType: body.boardType,
-        projectKey: typeof body.projectKey === 'string' ? body.projectKey : undefined,
       });
       res.status(201).json(task);
     } catch (err) {

@@ -12,9 +12,6 @@ const baseTask: TaskInput = {
   labels: ['frontend', 'ai-ready'],
   comments: [],
   jiraUrl: 'https://test.atlassian.net/browse/PROJ-123',
-  boardId: '2',
-  boardType: 'scrum',
-  projectKey: 'PROJ',
 };
 
 const baseConfig: ServerConfig = {
@@ -220,7 +217,6 @@ describe('buildPrompt', () => {
       logPath: '/home/.jiranimo/logs/PROJ-123.jsonl',
       claudeCostUsd: 0.05,
       recoveryState: 'none',
-      trackedBoards: ['host:1'],
       createdAt: '2026-01-01T00:00:00Z',
     };
     const prompt = buildPrompt(taskWithInternals as any, baseConfig, repoPath);
@@ -229,7 +225,6 @@ describe('buildPrompt', () => {
     expect(prompt).not.toContain('"runId"');
     expect(prompt).not.toContain('"attempt"');
     expect(prompt).not.toContain('"recoveryState"');
-    expect(prompt).not.toContain('"trackedBoards"');
     expect(prompt).not.toContain('"claudeCostUsd"');
     expect(prompt).not.toContain('"createdAt"');
     expect(prompt).not.toContain('"repoPath"');

@@ -5,16 +5,13 @@
  *   1. Create a Jira issue with "ai-ready" label
  *   2. Start the server pointing to a repos root (directory containing repos)
  *   3. Submit the task to the server (simulating extension)
- *   4. Fake Claude runs and completes the task
+ *   4. Real Claude Code runs and completes the task
  *   5. Verify: task status is "completed" with results
  *   6. Clean up Jira issue
- *
- * Uses fake-claude (not real Claude) so it's fast and free.
  */
 
 import { describe, it, expect, afterEach, afterAll, beforeAll } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
-import { resolve } from 'node:path';
 import {
   verifyConnection,
   createTestIssue,
@@ -39,14 +36,13 @@ let pipeline: PipelineManager;
 let httpServer: HttpServer;
 let serverPort: number;
 let stateDir: string;
-
-const FAKE_CLAUDE = `node ${resolve(import.meta.dirname, '..', 'fixtures', 'fake-claude.mjs')}`;
+const TASK_POLL_INTERVAL_MS = 5_000;
+const TASK_POLL_ATTEMPTS = 120;
 
 function makeConfig(reposRoot: string): ServerConfig {
   return {
     claude: {
-      maxBudgetUsd: 1.0,
-      command: FAKE_CLAUDE,
+      maxBudgetUsd: 2.0,
     },
     pipeline: { concurrency: 1, repoConfirmationTimeoutMs: 0 },
     git: {
@@ -81,6 +77,26 @@ async function stopServer() {
   if (stateDir) rmSync(stateDir, { recursive: true, force: true });
 }
 
+async function waitForTaskCompletion(issueKey: string): Promise<any> {
+  let task: any;
+
+  for (let i = 0; i < TASK_POLL_ATTEMPTS; i++) {
+    await new Promise(r => setTimeout(r, TASK_POLL_INTERVAL_MS));
+    const res = await fetch(`http://127.0.0.1:${serverPort}/api/tasks/${issueKey}`);
+    if (!res.ok) {
+      continue;
+    }
+
+    task = await res.json();
+    console.log(`[TEST] Poll ${i + 1}/${TASK_POLL_ATTEMPTS}: ${issueKey} = ${task.status}`);
+    if (task.status === 'completed' || task.status === 'failed') {
+      return task;
+    }
+  }
+
+  return task;
+}
+
 beforeAll(async () => {
   const connected = await verifyConnection();
   expect(connected).toBe(true);
@@ -101,7 +117,7 @@ afterAll(async () => {
 });
 
 describe('Full Pipeline E2E', () => {
-  it('submits task and fake Claude completes it', async () => {
+  it('submits task and real Claude completes it', async () => {
     startTest('submit-and-run');
 
     // Create a dedicated repos root with one test repo inside
@@ -133,21 +149,11 @@ describe('Full Pipeline E2E', () => {
         issueType: 'Task',
         labels: ['ai-ready'],
         jiraUrl: `https://${process.env.JIRA_HOST}/browse/${issueKey}`,
-        boardId: 'board-1',
-        boardType: 'scrum',
-        projectKey: 'JTEST',
       }),
     });
     expect(submitRes.status).toBe(201);
 
-    // Wait for completion
-    let task: any;
-    for (let i = 0; i < 30; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      const res = await fetch(`http://127.0.0.1:${serverPort}/api/tasks/${issueKey}`);
-      task = await res.json();
-      if (task.status === 'completed' || task.status === 'failed') break;
-    }
+    const task = await waitForTaskCompletion(issueKey);
 
     await screenshot('step2-result', {
       status: task.status,
@@ -156,11 +162,11 @@ describe('Full Pipeline E2E', () => {
     }, `Status: ${task.status}\nCost: $${task.claudeCostUsd || 0}\n${task.errorMessage ? `Error: ${task.errorMessage}` : 'No error'}`);
 
     expect(task.status).toBe('completed');
-    expect(task.claudeCostUsd).toBe(0.42);
-  }, 30_000);
+    expect(task.claudeCostUsd).toBeGreaterThanOrEqual(0);
+  }, 12 * 60 * 1000);
 
-  it('task shows on dashboard via API', async () => {
-    startTest('dashboard-api');
+  it('task shows in the tasks API after completion', async () => {
+    startTest('tasks-api');
 
     reposRoot = mkdtempSync(join(tmpdir(), 'jiranimo-e2e-repos-'));
     testRepo = createTestRepo(reposRoot);
@@ -183,19 +189,10 @@ describe('Full Pipeline E2E', () => {
         issueType: 'Task',
         labels: ['ai-ready'],
         jiraUrl: `https://${process.env.JIRA_HOST}/browse/${issueKey}`,
-        boardId: 'board-1',
-        boardType: 'scrum',
-        projectKey: 'JTEST',
       }),
     });
 
-    // Wait for completion
-    for (let i = 0; i < 20; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      const res = await fetch(`http://127.0.0.1:${serverPort}/api/tasks/${issueKey}`);
-      const task = await res.json();
-      if (task.status === 'completed' || task.status === 'failed') break;
-    }
+    await waitForTaskCompletion(issueKey);
 
     // Check task list API
     const listRes = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`);
@@ -207,5 +204,5 @@ describe('Full Pipeline E2E', () => {
     expect(tasks.length).toBe(1);
     expect(tasks[0].key).toBe(issueKey);
     expect(tasks[0].status).toBe('completed');
-  }, 30_000);
+  }, 12 * 60 * 1000);
 });

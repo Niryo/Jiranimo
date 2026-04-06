@@ -15,7 +15,6 @@ function makeTask(overrides?: Partial<TaskRecord>): TaskRecord {
     labels: ['ai-ready'],
     jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
     status: 'queued',
-    trackedBoards: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,

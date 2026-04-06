@@ -60,17 +60,23 @@ function normalizeGithubReviewComments(value: unknown): TaskRecord['githubReview
 }
 
 function normalizeTask(task: TaskRecord): TaskRecord {
-  return {
-    ...task,
-    trackedBoards: normalizeStringArray(task.trackedBoards),
-    fixedGithubCommentFingerprints: normalizeStringArray(task.fixedGithubCommentFingerprints),
-    pendingGithubCommentFingerprints: normalizeStringArray(task.pendingGithubCommentFingerprints),
-    githubReviewComments: normalizeGithubReviewComments(task.githubReviewComments),
+  const {
+    trackedBoards: _trackedBoards,
+    lastSeenOnBoardAt: _lastSeenOnBoardAt,
+    submittedFromBoardId: _submittedFromBoardId,
+    ...rest
+  } = task as TaskRecord & {
+    trackedBoards?: unknown;
+    lastSeenOnBoardAt?: unknown;
+    submittedFromBoardId?: unknown;
   };
-}
 
-export function boardTrackingKey(jiraHost: string, boardId: string): string {
-  return `${jiraHost}:${boardId}`;
+  return {
+    ...rest,
+    fixedGithubCommentFingerprints: normalizeStringArray(rest.fixedGithubCommentFingerprints),
+    pendingGithubCommentFingerprints: normalizeStringArray(rest.pendingGithubCommentFingerprints),
+    githubReviewComments: normalizeGithubReviewComments(rest.githubReviewComments),
+  };
 }
 
 export class StateStore {

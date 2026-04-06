@@ -17,9 +17,7 @@ async function loadContentScript() {
 
 function createBoardConfig() {
   return {
-    boardType: 'scrum',
     todoStatuses: ['To Do'],
-    projectKey: 'PROJ',
   };
 }
 

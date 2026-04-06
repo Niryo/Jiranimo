@@ -436,7 +436,7 @@
         startScanning();
       });
     } else {
-      if (!boardConfig.boardType || !Array.isArray(boardConfig.todoStatuses)) {
+      if (!Array.isArray(boardConfig.todoStatuses)) {
         boardConfig = await BoardConfig.ensureMetadata(currentBoardId, boardConfig);
       }
       log('Board config loaded:', JSON.stringify(boardConfig));
@@ -671,7 +671,6 @@
         components: (f.components || []).map(c => c.name),
         parentKey: f.parent?.key || '',
         jiraUrl: `${location.origin}/browse/${issueKey}`,
-        projectKey: issueKey.split('-')[0],
       };
     } catch (err) {
       warn('fetchIssueDetails error:', err);
@@ -698,7 +697,6 @@
       components: [],
       parentKey: '',
       jiraUrl: `${location.origin}/browse/${issueKey}`,
-      projectKey: issueKey.split('-')[0],
     };
   }
 
@@ -1855,18 +1853,11 @@
         log('Falling back to minimal issue payload for', issueKey);
       }
 
-      if (!currentBoardId || !boardConfig?.boardType) {
-        setDebugInfo({ issueKey, stage: 'missing-board-metadata', lastError: 'Board metadata unavailable' });
-        setBadgeState(icon, issueKey, 'failed', 'Board metadata unavailable — reload and retry');
+      if (!boardConfig) {
+        setDebugInfo({ issueKey, stage: 'missing-board-config', lastError: 'Board configuration unavailable' });
+        setBadgeState(icon, issueKey, 'failed', 'Board configuration unavailable — reload and retry');
         return;
       }
-
-      issueData = {
-        ...issueData,
-        boardId: currentBoardId,
-        boardType: boardConfig.boardType,
-        projectKey: boardConfig.projectKey || issueData.projectKey,
-      };
 
       /** @type {any} */
       setDebugInfo({ issueKey, stage: 'submit-task' });

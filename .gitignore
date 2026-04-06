@@ -5,6 +5,7 @@ dist/
 *.db
 *.log
 .DS_Store
+# Generated E2E snapshots
 packages/server/test/e2e/screenshots/
 ~/.jiranimo/
 .idea

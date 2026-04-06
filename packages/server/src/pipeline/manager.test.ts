@@ -66,9 +66,6 @@ const sampleInput: TaskInput = {
   labels: ['ai-ready'],
   comments: [],
   jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-  boardId: 'board-1',
-  boardType: 'scrum',
-  projectKey: 'PROJ',
 };
 
 let tmpDir: string;
@@ -174,7 +171,6 @@ describe('PipelineManager', () => {
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-RECOVER',
       status: 'in-progress',
-      trackedBoards: [],
       claudeSessionId: 'sess-123',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -203,7 +199,6 @@ describe('PipelineManager', () => {
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-CANCEL',
       status: 'interrupted',
-      trackedBoards: [],
       recoveryState: 'resume-pending',
       resumeAfter: new Date(Date.now() + 30_000).toISOString(),
       createdAt: new Date().toISOString(),
@@ -233,7 +228,6 @@ describe('PipelineManager', () => {
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-SESSION',
       status: 'interrupted',
-      trackedBoards: [],
       recoveryState: 'resume-cancelled',
       claudeSessionId: 'sess-abc',
       createdAt: new Date().toISOString(),
@@ -263,7 +257,6 @@ describe('PipelineManager', () => {
       comments: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-FRESH',
       status: 'interrupted',
-      trackedBoards: [],
       recoveryState: 'resume-cancelled',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -390,7 +383,6 @@ describe('PipelineManager', () => {
       status: 'queued',
       repoPath: '/tmp/already-chosen-repo',
       taskMode: 'implement',
-      trackedBoards: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -436,7 +428,7 @@ describe('PipelineManager', () => {
       key: 'PROJ-1', summary: 'Test', description: 'Test',
       priority: 'High', issueType: 'Story', labels: [],
       jiraUrl: 'https://test.atlassian.net/browse/PROJ-1',
-      status: 'in-progress', trackedBoards: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'in-progress', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
 
     mgr.completeViaAgent('PROJ-1', 'Implemented and PR created');
@@ -501,7 +493,6 @@ describe('PipelineManager', () => {
       status: 'completed',
       taskMode: 'plan',
       planContent: '# Technical Plan\n\n1. Build it\n',
-      trackedBoards: ['test.atlassian.net:board-1'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -525,7 +516,7 @@ describe('PipelineManager', () => {
       previousTaskMode: 'plan',
       planContent: '# Technical Plan\n\n1. Build it\n',
       comments: [{ author: 'PM', body: "Perfect, let's do it", created: '2026-04-02T09:00:00.000Z' }],
-    }));
+    }), testConfig.claude);
     expect(store.getTask('PROJ-REPLAN')?.taskMode).toBe('implement');
 
     mgr.shutdown();
@@ -550,7 +541,6 @@ describe('PipelineManager', () => {
       prNumber: 42,
       branchName: 'jiranimo/PROJ-REVIEW-feature',
       fixedGithubCommentFingerprints: ['review:100:2026-04-02T10:00:00Z'],
-      trackedBoards: ['test.atlassian.net:board-1'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -609,7 +599,6 @@ describe('PipelineManager', () => {
       prUrl: 'https://github.com/org/repo/pull/99',
       prNumber: 99,
       branchName: 'jiranimo/PROJ-NO-COMMENTS-feature',
-      trackedBoards: ['test.atlassian.net:board-1'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -644,7 +633,6 @@ describe('PipelineManager', () => {
       prNumber: 77,
       branchName: 'jiranimo/PROJ-CONTINUE-feature',
       fixedGithubCommentFingerprints: ['review:100:2026-04-02T10:00:00Z'],
-      trackedBoards: ['test.atlassian.net:board-1'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -716,7 +704,7 @@ describe('PipelineManager', () => {
 
     await new Promise(r => setTimeout(r, 200));
 
-    expect(vi.mocked(pickRepo)).toHaveBeenCalledWith('/tmp/repos', expect.objectContaining({ key: 'PROJ-ROOT' }));
+    expect(vi.mocked(pickRepo)).toHaveBeenCalledWith('/tmp/repos', expect.objectContaining({ key: 'PROJ-ROOT' }), testConfig.claude);
     mgr.shutdown();
     store.destroy();
   });
@@ -896,17 +884,6 @@ describe('PipelineManager', () => {
     store.destroy();
   });
 
-  it('seeds trackedBoards from the submitting board', () => {
-    const mgr = new PipelineManager(store, testConfig, repoRootTarget);
-    const task = mgr.submitTask(sampleInput);
-
-    expect(task.trackedBoards).toEqual(['test.atlassian.net:board-1']);
-    expect(task.submittedFromBoardId).toBe('board-1');
-    expect(task.lastSeenOnBoardAt).toBeDefined();
-    mgr.shutdown();
-    store.destroy();
-  });
-
   it('prunes tasks older than the retention window during startup', () => {
     const statePath = join(tmpDir, 'state.json');
     store.destroy();
@@ -922,7 +899,6 @@ describe('PipelineManager', () => {
           labels: [],
           jiraUrl: 'https://test.atlassian.net/browse/PROJ-OLD',
           status: 'completed',
-          trackedBoards: ['test.atlassian.net:board-1'],
           createdAt: '2025-01-01T00:00:00.000Z',
           updatedAt: '2025-01-05T00:00:00.000Z',
           completedAt: '2025-01-05T00:00:00.000Z',

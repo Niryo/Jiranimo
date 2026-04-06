@@ -196,9 +196,6 @@ describe('Offline Queue E2E', () => {
           serverUrl,
           [`boardConfig_${boardId}`]: {
             boardId: String(boardId),
-            projectKey: 'JTEST',
-            boardType: 'scrum',
-            triggerLabel: 'ai-ready',
             transitions: {
               inProgress: inProgress ? { id: inProgress.id, name: inProgress.name } : null,
               inReview: done ? { id: done.id, name: done.name } : null,

@@ -4,7 +4,6 @@ export type RecoveryState = 'none' | 'resume-pending' | 'resume-cancelled' | 're
 export type ResumeMode = 'claude-session' | 'fresh-recovery';
 export type EffectType = 'pipeline-status-sync' | 'completion-comment' | 'plan-comment' | 'repo-confirmation';
 export type EffectStatus = 'pending' | 'claimed';
-export type JiraBoardType = 'scrum' | 'kanban';
 
 export interface GithubReviewCommentRecord {
   id: number;
@@ -78,9 +77,6 @@ export interface TaskRecord {
   resumeMode?: ResumeMode;
   screenshotFailed?: boolean;
   screenshotFailReason?: string;
-  trackedBoards: string[];
-  lastSeenOnBoardAt?: string;
-  submittedFromBoardId?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;

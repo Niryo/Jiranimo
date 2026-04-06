@@ -7,7 +7,7 @@ import type { ChildProcess } from 'node:child_process';
 import type { ServerConfig } from '../config/types.js';
 import type { TaskRecord, TaskStatus, EffectRecord } from '../state/types.js';
 import type { ClaudeEvent, ExecutionResult, TaskInput } from '../claude/types.js';
-import { StateStore, boardTrackingKey } from '../state/store.js';
+import { StateStore } from '../state/store.js';
 import { transition } from './state-machine.js';
 import { buildPrompt, planFilePath } from '../claude/prompt-builder.js';
 import { resolveTaskMode } from '../claude/task-classifier.js';
@@ -121,11 +121,6 @@ export class PipelineManager extends EventEmitter {
       (input.comments ?? []).some(c => /screenshot/i.test(c.body));
 
     const now = new Date().toISOString();
-    const jiraHost = jiraHostFromUrl(input.jiraUrl);
-    const initialTrackedBoards = [...new Set([
-      ...(existing?.trackedBoards ?? []),
-      boardTrackingKey(jiraHost, input.boardId),
-    ])];
 
     const task: TaskRecord = {
       key: input.key,
@@ -163,9 +158,6 @@ export class PipelineManager extends EventEmitter {
       workspacePath: existing?.workspacePath ?? workspacePathForTask(input.key),
       attempt: existing?.attempt ?? 0,
       recoveryState: 'none',
-      trackedBoards: initialTrackedBoards,
-      submittedFromBoardId: input.boardId,
-      lastSeenOnBoardAt: now,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -959,10 +951,10 @@ export class PipelineManager extends EventEmitter {
           ? Promise.resolve(started.repoPath)
           : (this.repoTarget.kind === 'single-repo'
             ? Promise.resolve(this.repoTarget.repoPath)
-            : pickRepo(this.repoTarget.reposRoot, started)),
+            : pickRepo(this.repoTarget.reposRoot, started, this.config.claude)),
         started.taskMode != null
           ? Promise.resolve(started.taskMode)
-          : resolveTaskMode({ ...started, comments: started.comments ?? [] }),
+          : resolveTaskMode({ ...started, comments: started.comments ?? [] }, this.config.claude),
       ]);
 
       let repoPath = detectedRepoPath;
