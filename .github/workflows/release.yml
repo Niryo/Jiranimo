@@ -64,7 +64,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json server/package.json server/README.md server/LICENSE server/src/mcp/server.ts extension/package.json extension/manifest.json packages/assets/package.json
+          git add package.json package-lock.json packages/server/package.json packages/server/README.md packages/server/LICENSE packages/server/src/mcp/server.ts packages/extension/package.json packages/extension/manifest.json packages/assets/package.json
           git commit -m "chore(release): v${{ steps.version.outputs.value }}"
 
       - name: Publish npm package
