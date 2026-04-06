@@ -1688,10 +1688,6 @@
     const card = document.createElement('section');
     card.className = `jiranimo-task-card jiranimo-task-card-${task.status || 'completed'}`;
 
-    const key = document.createElement('div');
-    key.className = 'jiranimo-task-card-key';
-    key.textContent = task.key || issueKey;
-
     const summary = document.createElement('div');
     summary.className = 'jiranimo-task-card-summary';
     summary.textContent = task.summary || 'Task details';
@@ -1785,7 +1781,6 @@
       }));
     }
 
-    card.appendChild(key);
     card.appendChild(summary);
     card.appendChild(meta);
     if (actions.firstElementChild) {

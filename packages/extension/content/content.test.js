@@ -788,7 +788,7 @@ describe('content script startup', () => {
     const overlay = document.querySelector('.jiranimo-task-modal-overlay');
     expect(overlay).not.toBeNull();
     expect(overlay?.getAttribute('hidden')).toBeNull();
-    expect(document.querySelector('.jiranimo-task-card-key')?.textContent).toBe('PROJ-206');
+    expect(document.querySelector('.jiranimo-task-card-key')).toBeNull();
     expect(document.querySelector('.jiranimo-task-card-summary')?.textContent).toBe('Ship the change');
 
     const viewPrButton = document.querySelector('.jiranimo-task-card-meta-link');
