@@ -436,9 +436,6 @@
         startScanning();
       });
     } else {
-      if (!Array.isArray(boardConfig.todoStatuses)) {
-        boardConfig = await BoardConfig.ensureMetadata(currentBoardId, boardConfig);
-      }
       log('Board config loaded:', JSON.stringify(boardConfig));
       startScanning();
     }
@@ -583,6 +580,14 @@
 
   function shouldPreserveBadgeForIssue(issueKey) {
     return pinnedBadgeIssueKeys.has(issueKey) || Boolean(taskStatuses[issueKey]);
+  }
+
+  function isIssueInTodoColumn(issueKey) {
+    const taskItem = findTaskItemByIssueKey(issueKey);
+    if (!taskItem) {
+      return false;
+    }
+    return isTaskItemInLeftmostColumn(taskItem);
   }
 
   function findBadgeHost(taskItem) {
@@ -1942,7 +1947,6 @@
       }
 
       if (taskItemsToProcess.size > 0) {
-        issueStatusCache.clear();
         let injected = 0;
         for (const taskItem of taskItemsToProcess) {
           if (processTaskListItem(taskItem)) {
@@ -2045,33 +2049,6 @@
     }
   }
 
-  function inferIsTodoStatus(statusName) {
-    const normalizedStatus = statusName.trim().toLowerCase();
-    if (!normalizedStatus) return false;
-
-    const todoStatuses = Array.isArray(boardConfig?.todoStatuses)
-      ? boardConfig.todoStatuses
-        .filter((status) => typeof status === 'string')
-        .map((status) => status.trim().toLowerCase())
-      : [];
-    if (todoStatuses.length > 0) {
-      return todoStatuses.includes(normalizedStatus);
-    }
-
-    const inProgressStatus = typeof boardConfig?.transitions?.inProgress?.name === 'string'
-      ? boardConfig.transitions.inProgress.name.trim().toLowerCase()
-      : '';
-    const inReviewStatus = typeof boardConfig?.transitions?.inReview?.name === 'string'
-      ? boardConfig.transitions.inReview.name.trim().toLowerCase()
-      : '';
-
-    if (normalizedStatus === inProgressStatus || normalizedStatus === inReviewStatus) {
-      return false;
-    }
-
-    return /(^to do$|^todo$|backlog|selected for development|open)/i.test(statusName);
-  }
-
   async function refreshContinueBadgeStates() {
     const refreshToken = ++continueStateRefreshToken;
     const completedIssueKeys = [...document.querySelectorAll(`[${BADGE_ATTR}]`)]
@@ -2085,10 +2062,9 @@
       }
     }
 
-    await Promise.all(completedIssueKeys.map(async (issueKey) => {
-      const statusName = await getIssueStatus(issueKey);
-      nextContinueStates[issueKey] = inferIsTodoStatus(statusName);
-    }));
+    for (const issueKey of completedIssueKeys) {
+      nextContinueStates[issueKey] = isIssueInTodoColumn(issueKey);
+    }
 
     if (refreshToken !== continueStateRefreshToken) {
       return;

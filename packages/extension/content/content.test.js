@@ -704,7 +704,7 @@ describe('content script startup', () => {
     expect(syncedBadge?.getAttribute('class')).toContain('queued');
   });
 
-  it('opens a task modal for completed tasks instead of opening the PR immediately', async () => {
+  it('opens a task modal for completed tasks outside the todo column instead of opening the PR immediately', async () => {
     const sendMessageImpl = vi.fn((message, callback) => {
       if (message.type === 'server-fetch' && message.path?.startsWith('/api/sync')) {
         callback?.({
@@ -768,7 +768,7 @@ describe('content script startup', () => {
       sendMessageImpl,
     });
     const { columns } = createBoardWithColumns(document, 2);
-    columns[0].list.appendChild(createTaskListItem(document, 'PROJ-206', 'Ship the change'));
+    columns[1].list.appendChild(createTaskListItem(document, 'PROJ-206', 'Ship the change'));
 
     await loadContentScript();
     await webSockets[0].onopen?.();
@@ -826,6 +826,91 @@ describe('content script startup', () => {
       type: 'open-tab',
       url: 'https://github.com/acme/repo/pull/206',
     });
+  });
+
+  it('shows Continue for completed tasks that are still in the leftmost column without fetching Jira status', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
+    const sendMessageImpl = vi.fn((message, callback) => {
+      if (message.type === 'server-fetch' && message.path?.startsWith('/api/sync')) {
+        callback?.({
+          ok: true,
+          status: 200,
+          data: {
+            tasks: [{
+              key: 'PROJ-208',
+              status: 'completed',
+              summary: 'Continue this task',
+            }],
+            pendingEffects: [],
+            serverEpoch: 1,
+            revision: 1,
+          },
+        });
+        return;
+      }
+
+      callback?.({ ok: true, status: 200, data: {} });
+    });
+
+    const { document, webSockets } = setupGlobals('/jira/software/projects/PROJ/boards/123', {
+      boardConfig: createBoardConfig(),
+      fetchImpl,
+      sendMessageImpl,
+    });
+    const { columns } = createBoardWithColumns(document, 2);
+    columns[0].list.appendChild(createTaskListItem(document, 'PROJ-208', 'Continue this task'));
+
+    await loadContentScript();
+    await webSockets[0].onopen?.();
+    await flushMicrotasks();
+
+    const badge = document.querySelector('[data-jiranimo="PROJ-208"]');
+    expect(badge).not.toBeNull();
+    expect(badge?.getAttribute('class')).toContain('continue');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('keeps completed tasks as Done when their card is outside the leftmost column', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
+    const sendMessageImpl = vi.fn((message, callback) => {
+      if (message.type === 'server-fetch' && message.path?.startsWith('/api/sync')) {
+        callback?.({
+          ok: true,
+          status: 200,
+          data: {
+            tasks: [{
+              key: 'PROJ-209',
+              status: 'completed',
+              summary: 'Done task',
+            }],
+            pendingEffects: [],
+            serverEpoch: 1,
+            revision: 1,
+          },
+        });
+        return;
+      }
+
+      callback?.({ ok: true, status: 200, data: {} });
+    });
+
+    const { document, webSockets } = setupGlobals('/jira/software/projects/PROJ/boards/123', {
+      boardConfig: createBoardConfig(),
+      fetchImpl,
+      sendMessageImpl,
+    });
+    const { columns } = createBoardWithColumns(document, 2);
+    columns[1].list.appendChild(createTaskListItem(document, 'PROJ-209', 'Done task'));
+
+    await loadContentScript();
+    await webSockets[0].onopen?.();
+    await flushMicrotasks();
+
+    const badge = document.querySelector('[data-jiranimo="PROJ-209"]');
+    expect(badge).not.toBeNull();
+    expect(badge?.getAttribute('class')).toContain('completed');
+    expect(badge?.getAttribute('class')).not.toContain('continue');
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('opens a failed task modal with the error instead of retrying immediately', async () => {
