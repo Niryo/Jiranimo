@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jiranimo Privacy Policy</title>
+    <style>
+      :root {
+        --bg: #eef3f8;
+        --panel: rgba(255, 255, 255, 0.94);
+        --text: #102030;
+        --muted: #556476;
+        --line: rgba(16, 32, 48, 0.12);
+        --heading: #0c1726;
+        --accent: #0b5bd3;
+        --accent-soft: rgba(11, 91, 211, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top right, rgba(11, 91, 211, 0.12), transparent 24%),
+          linear-gradient(180deg, #f9fbfe 0%, var(--bg) 100%);
+      }
+
+      .layout {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 40px 20px 80px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 22px;
+        margin-bottom: 26px;
+        padding: 34px;
+        border: 1px solid var(--line);
+        border-radius: 30px;
+        background: var(--panel);
+        box-shadow: 0 28px 80px rgba(21, 48, 84, 0.08);
+        backdrop-filter: blur(14px);
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        color: var(--heading);
+        font-size: clamp(38px, 6vw, 64px);
+        line-height: 0.95;
+        letter-spacing: -0.05em;
+      }
+
+      .hero p,
+      .hero li,
+      .content p,
+      .content li {
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.72;
+      }
+
+      .hero-grid {
+        display: grid;
+        gap: 18px;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .meta-chip {
+        padding: 10px 14px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: #fff;
+        font-size: 14px;
+        color: var(--text);
+      }
+
+      .content {
+        display: grid;
+        grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+        gap: 24px;
+      }
+
+      nav,
+      article {
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: var(--panel);
+        box-shadow: 0 20px 60px rgba(20, 43, 77, 0.06);
+      }
+
+      nav {
+        position: sticky;
+        top: 20px;
+        align-self: start;
+        padding: 22px 18px;
+      }
+
+      nav h2 {
+        margin: 0 0 14px;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      nav a {
+        display: block;
+        padding: 10px 12px;
+        border-radius: 12px;
+        text-decoration: none;
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      nav a:hover {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      article {
+        padding: 10px 30px 34px;
+      }
+
+      section {
+        padding-top: 24px;
+        border-top: 1px solid rgba(16, 32, 48, 0.08);
+      }
+
+      section:first-child {
+        border-top: none;
+      }
+
+      h2 {
+        margin: 0 0 10px;
+        color: var(--heading);
+        font-size: 27px;
+        letter-spacing: -0.03em;
+      }
+
+      ul {
+        margin: 12px 0 0;
+        padding-left: 20px;
+      }
+
+      li + li {
+        margin-top: 8px;
+      }
+
+      .note {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid rgba(11, 91, 211, 0.14);
+        background: rgba(11, 91, 211, 0.06);
+        color: var(--text);
+      }
+
+      a.inline {
+        color: var(--accent);
+      }
+
+      footer {
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      @media (max-width: 900px) {
+        .content {
+          grid-template-columns: 1fr;
+        }
+
+        nav {
+          position: static;
+        }
+
+        article {
+          padding: 6px 20px 24px;
+        }
+
+        .hero {
+          padding: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <header class="hero">
+        <span class="eyebrow">Privacy Policy</span>
+        <div class="hero-grid">
+          <h1>Jiranimo Privacy Policy</h1>
+          <p>
+            Jiranimo is a developer tool made of a Chrome extension and a local server. It is designed
+            to work primarily on your machine and inside your own Jira, GitHub, and Claude workflows.
+            This page explains what data Jiranimo handles, where that data goes, and what you control.
+          </p>
+        </div>
+        <div class="meta">
+          <span class="meta-chip">Last updated: April 7, 2026</span>
+          <span class="meta-chip">Project: Jiranimo</span>
+          <span class="meta-chip">Source: github.com/Niryo/Jiranimo</span>
+        </div>
+      </header>
+
+      <div class="content">
+        <nav aria-label="Privacy sections">
+          <h2>On This Page</h2>
+          <a href="#summary">Summary</a>
+          <a href="#data-we-handle">Data We Handle</a>
+          <a href="#how-data-is-used">How Data Is Used</a>
+          <a href="#where-data-is-stored">Where Data Is Stored</a>
+          <a href="#third-parties">Third-Party Services</a>
+          <a href="#sharing">Sharing</a>
+          <a href="#controls">Your Controls</a>
+          <a href="#contact">Contact</a>
+        </nav>
+
+        <article>
+          <section id="summary">
+            <h2>Summary</h2>
+            <p>
+              Jiranimo does not run a central cloud backend for the extension itself. The Chrome extension
+              runs in your browser and connects to a local server that you run yourself. Jiranimo reads Jira
+              issue data needed to perform the actions you request, stores local configuration and task state
+              on your device, and may send task content to third-party services only when those services are
+              part of your chosen workflow.
+            </p>
+            <div class="note">
+              In practical terms: the extension talks to Jira pages you visit and to your own local Jiranimo
+              server. The local server may then interact with Claude, GitHub, or screenshot hosting if you
+              choose to use those features.
+            </div>
+          </section>
+
+          <section id="data-we-handle">
+            <h2>Data We Handle</h2>
+            <p>Depending on the feature you use, Jiranimo may handle:</p>
+            <ul>
+              <li>Jira issue metadata such as issue key, summary, description, labels, comments, status, subtasks, linked issues, attachments, assignee, reporter, and issue URL.</li>
+              <li>Per-board extension settings, such as the configured workflow columns and the local server URL.</li>
+              <li>Local task state, including queued or completed runs, progress updates, local log files, PR links, and related metadata.</li>
+              <li>GitHub pull request information if you use PR creation, PR updates, or review-comment handling features.</li>
+              <li>Screenshots and screenshot instructions if you use the optional screenshot workflow.</li>
+            </ul>
+          </section>
+
+          <section id="how-data-is-used">
+            <h2>How Data Is Used</h2>
+            <p>Jiranimo uses this data to:</p>
+            <ul>
+              <li>Show AI controls directly inside supported Jira board pages.</li>
+              <li>Read the Jira issue you select so the local server can prepare implementation context.</li>
+              <li>Track task progress and update the board state or comments when a run completes.</li>
+              <li>Remember your local settings so you do not need to reconfigure each board every time.</li>
+              <li>Optionally continue work on an existing PR, read GitHub review comments, or attach screenshots when you use those features.</li>
+            </ul>
+          </section>
+
+          <section id="where-data-is-stored">
+            <h2>Where Data Is Stored</h2>
+            <p>
+              The extension stores configuration locally in Chrome storage. The local Jiranimo server stores
+              task state and logs on your machine, by default under your user home directory in a
+              <code>.jiranimo</code> folder. The exact location can be changed through local server configuration.
+            </p>
+            <ul>
+              <li>Extension settings are stored locally in your browser.</li>
+              <li>Server task state is stored locally on disk.</li>
+              <li>Server log files are stored locally on disk.</li>
+            </ul>
+            <p>
+              Jiranimo does not use its own hosted database for this extension workflow.
+            </p>
+          </section>
+
+          <section id="third-parties">
+            <h2>Third-Party Services</h2>
+            <p>
+              Jiranimo can work with third-party services that you already use. Data is sent to those services
+              only as part of the features you trigger.
+            </p>
+            <ul>
+              <li><strong>Atlassian Jira:</strong> the extension runs on Jira board pages and reads issue data through Jira APIs using your existing Jira session.</li>
+              <li><strong>Anthropic / Claude Code:</strong> if you run implementation tasks, your local server may send task context and repository-related prompts to Claude Code according to your local setup.</li>
+              <li><strong>GitHub:</strong> if you use PR creation, PR updates, or GitHub review comment features, the local server may use your local GitHub tooling and send relevant PR data to GitHub.</li>
+              <li><strong>ImgBB:</strong> if you use the optional screenshot upload tool, screenshot images may be uploaded to ImgBB.</li>
+            </ul>
+            <p>
+              Each third-party service has its own terms and privacy practices. Your use of those services through
+              Jiranimo is also subject to their policies.
+            </p>
+          </section>
+
+          <section id="sharing">
+            <h2>Sharing</h2>
+            <p>
+              Jiranimo is not designed to sell personal data or share data with advertising networks. Data is
+              shared only when needed to carry out the workflow you initiate, such as sending task context to
+              Claude Code, posting updates to Jira, reading or updating a GitHub pull request, or uploading a
+              screenshot when you explicitly use that feature.
+            </p>
+          </section>
+
+          <section id="controls">
+            <h2>Your Controls</h2>
+            <ul>
+              <li>You can remove the extension at any time.</li>
+              <li>You can clear extension settings from Chrome and remove board configurations from the options page.</li>
+              <li>You can delete local Jiranimo state and logs from your machine.</li>
+              <li>You control whether the local server is running and whether you use GitHub, Claude, or screenshot-related features.</li>
+            </ul>
+            <div class="note">
+              This policy describes the current open-source implementation of Jiranimo. If you distribute a modified
+              version or run Jiranimo with additional services, review this policy and update it to match your actual deployment.
+            </div>
+          </section>
+
+          <section id="contact">
+            <h2>Contact</h2>
+            <p>
+              For questions about this policy or the project, open an issue in the
+              <a class="inline" href="https://github.com/Niryo/Jiranimo">Jiranimo GitHub repository</a>.
+            </p>
+          </section>
+
+          <footer>
+            This page is provided for product transparency and Chrome Web Store disclosure purposes. It is not legal advice.
+          </footer>
+        </article>
+      </div>
+    </div>
+  </body>
+</html>
