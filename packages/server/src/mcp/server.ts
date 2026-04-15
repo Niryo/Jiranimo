@@ -20,7 +20,7 @@ export async function uploadToImgbb(filePath: string): Promise<string> {
 
 export function createMcpHandler(pipeline: PipelineManager) {
   return async (req: Request, res: Response): Promise<void> => {
-    const server = new McpServer({ name: 'jiranimo', version: '1.8.0' });
+    const server = new McpServer({ name: 'jiranimo', version: '1.10.0' });
 
     server.tool(
       'jiranimo_progress',
