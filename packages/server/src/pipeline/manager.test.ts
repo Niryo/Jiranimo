@@ -540,6 +540,7 @@ describe('PipelineManager', () => {
       prUrl: 'https://github.com/org/repo/pull/42',
       prNumber: 42,
       branchName: 'jiranimo/PROJ-REVIEW-feature',
+      claudeCostUsd: 0.5,
       fixedGithubCommentFingerprints: ['review:100:2026-04-02T10:00:00Z'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -576,6 +577,7 @@ describe('PipelineManager', () => {
       'review:100:2026-04-02T10:00:00Z',
       'conversation:101:2026-04-03T10:00:00Z',
     ]);
+    expect(updated?.claudeCostUsd).toBe(1);
     expect(updated?.pendingGithubCommentFingerprints).toEqual([]);
     expect(updated?.githubReviewComments).toEqual([]);
 

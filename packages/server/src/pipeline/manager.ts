@@ -1089,9 +1089,14 @@ export class PipelineManager extends EventEmitter {
         // compact log generation is best-effort; don't fail the task
       }
 
+      const existingTask = this.store.getTask(key);
+      const accumulatedCostUsd = typeof result.costUsd === 'number'
+        ? (existingTask?.claudeCostUsd ?? 0) + result.costUsd
+        : existingTask?.claudeCostUsd;
+
       this.store.patchTask(key, {
-        claudeSessionId: result.sessionId ?? this.store.getTask(key)?.claudeSessionId,
-        claudeCostUsd: result.costUsd,
+        claudeSessionId: result.sessionId ?? existingTask?.claudeSessionId,
+        claudeCostUsd: accumulatedCostUsd,
         logPath,
         compactLog,
         activePid: undefined,
