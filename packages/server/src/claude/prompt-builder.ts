@@ -294,17 +294,23 @@ ${taskJson}
 
 The repository is at: \`${repoPath}\`
 
-**Step 1 - Create a worktree** for exploration:
+**Step 1 - Fetch latest remote state** (required before branch creation):
+\`\`\`bash
+git -C ${repoPath} fetch origin
 \`\`\`
+
+**Step 2 - Create a worktree** for exploration:
+\`\`\`bash
 git -C ${repoPath} worktree add ${worktreePath} -b ${branchPrefix}${task.key}-plan origin/${defaultBaseBranch}
 cd ${worktreePath}
+pwd  # must show ${worktreePath} — abort if it does not
 \`\`\`
 If \`origin/${defaultBaseBranch}\` does not exist, detect the actual default branch first:
 \`git -C ${repoPath} remote show ${pushRemote} | grep 'HEAD branch'\`
 
-**Step 2 - Write the plan** to \`${planFilePath(task.key)}\` — do NOT commit this file or anything else.
+**Step 3 - Write the plan** to \`${planFilePath(task.key)}\` — do NOT commit this file or anything else.
 
-**Step 3 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
+**Step 4 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
 - \`jiranimo_progress\` — send progress updates as you work (task_key="${task.key}")
 - \`jiranimo_complete\` — when the plan file is written (task_key="${task.key}")
 - \`jiranimo_fail\` — if you hit an unrecoverable error (task_key="${task.key}")
@@ -328,19 +334,26 @@ ${existingPlanSection}
 
 The repository you should work on is at: \`${repoPath}\`
 
-**Step 1 - Create a worktree** for isolation:
+**Step 1 - Fetch latest remote state** (required before branch creation):
+\`\`\`bash
+git -C ${repoPath} fetch origin
 \`\`\`
+
+**Step 2 - Create a worktree** for isolation:
+\`\`\`bash
 if [ ! -d "${worktreePath}" ]; then
   git -C ${repoPath} worktree add ${worktreePath} -b ${branchPrefix}${task.key}-<short-slug> origin/${defaultBaseBranch}
 fi
 cd ${worktreePath}
+pwd  # must show ${worktreePath} — if it does not, STOP and call jiranimo_fail
+git branch --show-current  # must NOT be master or main — if it is, STOP and call jiranimo_fail
 \`\`\`
 If \`origin/${defaultBaseBranch}\` does not exist, detect the actual default branch first:
 \`git -C ${repoPath} remote show ${pushRemote} | grep 'HEAD branch'\`
 
-**Step 2 - Implement** the changes described above. Write or update tests as appropriate and ensure they pass.
+**Step 3 - Implement** the changes described above. Write or update tests as appropriate and ensure they pass.
 
-**Step 3 - Commit and push**:
+**Step 4 - Commit and push**:
 \`\`\`
 git add -A
 git commit -m "<type>(${task.key}): <short description>"
@@ -348,7 +361,7 @@ git push -u ${pushRemote} <branch-name>
 \`\`\`
 Use conventional commit types: \`feat\` for features, \`fix\` for bugs, \`chore\` for other work.
 
-**Step 4 — Screenshot (frontend tasks only)**
+**Step 5 — Screenshot (frontend tasks only)**
 If your implementation touches any UI files (HTML, CSS, frontend JS, browser extension files), take a screenshot of the real running feature.
 
 Think of yourself as a developer who just finished implementing this feature and wants to show it working. How would you demo it to a colleague? Do that — use the real app, the real dev server, the real test suite.
@@ -368,7 +381,7 @@ Call \`jiranimo_screenshot_failed\` only if you genuinely tried both approaches 
 
 If your changes are server-only, skip this step.
 
-**Step 5 — Upload the screenshot and create a PR**:
+**Step 6 — Upload the screenshot and create a PR**:
 If a screenshot was taken, call \`jiranimo_upload_screenshot\` with \`file_path="/tmp/jiranimo-${task.key}-screenshot.png"\`. It returns a URL — use it in the PR body as \`![Screenshot](<url>)\`.
 
 \`\`\`bash
@@ -376,10 +389,10 @@ gh pr create ${createDraftPr ? '--draft ' : ''}--title "#${task.key} ${task.summ
 # append screenshot line here if upload succeeded: ![Screenshot](<url>)"
 \`\`\`
 
-**Step 5b — Verify the screenshot is in the PR body** (required if a screenshot was uploaded):
+**Step 6b — Verify the screenshot is in the PR body** (required if a screenshot was uploaded):
 Run \`gh pr view --json body --jq '.body'\` and confirm it contains the screenshot URL. If not, run \`gh pr edit\` to add it.
 
-**Step 6 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
+**Step 7 - Report back using the jiranimo MCP tools** (available as \`jiranimo_*\`):
 - \`jiranimo_progress\` — send progress updates as you work (task_key="${task.key}")
 - \`jiranimo_report_pr\` — once the PR is created, report its url, number, and branch name (task_key="${task.key}")
 - \`jiranimo_complete\` — when all work is done (task_key="${task.key}")
