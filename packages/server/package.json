@@ -1,6 +1,6 @@
 {
   "name": "jiranimo",
-  "version": "1.7.0",
+  "version": "1.9.0",
   "type": "module",
   "description": "Local automation server for the Jiranimo Jira extension",
   "main": "./dist/index.js",
